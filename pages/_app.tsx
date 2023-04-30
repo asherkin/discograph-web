@@ -6,7 +6,7 @@ import Layout from "@/components/layout";
 import "@/styles/globals.css";
 
 export default function App({ Component, pageProps: { session, ...pageProps }, router: { pathname } }: AppProps) {
-  const baseUrl = (typeof window !== "undefined") ? window.location.href : process.env.NEXTAUTH_URL;
+  const baseUrl = (typeof window !== "undefined") ? window.location.href : (process.env.NEXTAUTH_URL || "http://localhost:3000");
 
   return <SessionProvider session={session}>
     <Head>
