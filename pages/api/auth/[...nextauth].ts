@@ -3,6 +3,9 @@ import { DefaultJWT } from "next-auth/jwt";
 import DiscordProvider from "next-auth/providers/discord";
 
 export default NextAuth({
+    pages: {
+        signIn: "/auth/login",
+    },
     callbacks: {
         async jwt({ token, account }) {
             if (account) {

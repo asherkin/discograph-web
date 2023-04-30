@@ -21,7 +21,7 @@ export default function App({ Component, pageProps: { session, ...pageProps }, r
       <meta property="og:image:height" content="256" />
       <meta property="og:url" content={baseUrl} />
     </Head>
-    <Layout showHeaderLogo={pathname !== '/'}>
+    <Layout showHeaderLogo={pathname !== '/'} signOutToIndex={!!pathname.match("^/server(/|s?$)")}>
       <Component {...pageProps} />
     </Layout>
   </SessionProvider>
