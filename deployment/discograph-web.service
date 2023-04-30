@@ -1,0 +1,19 @@
+[Unit]
+Description=discograph-web
+After=network.target
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=simple
+User=apache
+Group=apache
+Environment="NODE_ENV=production"
+ExecStart=/opt/discograph-web/node_modules/.bin/next start -p 3000 -H 127.0.0.1
+WorkingDirectory=/opt/discograph-web
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+
