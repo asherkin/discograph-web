@@ -11,7 +11,11 @@ export default function App({ Component, pageProps: { session, ...pageProps }, r
   return <SessionProvider session={session}>
     <Head>
       <title>DiscoGraph</title>
-      <link rel="shortcut icon" href="/favicon.ico" />
+      <link rel="icon" type="image/x-icon" sizes="16x16 32x32 48x48" href="/favicon.ico" />
+      <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+      <link rel="icon" type="image/png" sizes="256x256" href="/favicon-256.png" />
+      <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+      <link rel="apple-touch-icon" type="image/png" sizes="256x256" href="/logo-256.png" />
       <meta key="description" name="description" content="A Discord Bot that infers relationships between users and draws pretty graphs." />
       <meta property="og:title" content="DiscoGraph" />
       <meta property="og:description" content="A Discord Bot that infers relationships between users and draws pretty graphs." />
