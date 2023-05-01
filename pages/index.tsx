@@ -13,8 +13,21 @@ export default function Home() {
     <h1 className="text-6xl font-bold my-6">DiscoGraph</h1>
     <p className="mb-6">A Discord Bot that infers relationships between users and draws pretty graphs.</p>
     <div className="max-sm:flex max-sm:flex-wrap max-sm:space-y-3 sm:space-x-3">
-      <LinkButton className="w-full" intent="primary" target="_blank" href={`https://discord.com/api/oauth2/authorize?client_id=${process.env.NEXT_PUBLIC_DISCORD_ID}&permissions=274878024768&scope=bot%20applications.commands`}>Add to server <ArrowTopRightOnSquareIcon className="inline h-5 w-5 align-top ml-1" /></LinkButton>
-      <LinkButton className="w-full" href="/servers">{status === "authenticated" ? "View your servers" : "Login with Discord"}</LinkButton>
+      <LinkButton className="w-full" intent="primary" target="_blank" rel="noreferrer" href={{
+        protocol: "https:",
+        host: "discord.com",
+        pathname: "/api/oauth2/authorize",
+        query: {
+          client_id: process.env.NEXT_PUBLIC_DISCORD_ID,
+          scope: "bot applications.commands",
+          permissions: "274878024768",
+        },
+      }}>
+        Add to server <ArrowTopRightOnSquareIcon className="inline h-5 w-5 align-top ml-1" />
+      </LinkButton>
+      <LinkButton className="w-full" href="/servers">
+        {status === "authenticated" ? "View your servers" : "Login with Discord"}
+      </LinkButton>
     </div>
   </div>;
 }
