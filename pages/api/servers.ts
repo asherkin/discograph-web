@@ -8,8 +8,8 @@ export interface ClientDiscordGuildInfo {
   id: string,
   name: string,
   can_manage: boolean,
-  icon_url: string,
-  hover_icon_url: string,
+  icon_url: string | null,
+  hover_icon_url: string | null,
 }
 
 export interface ServersResponse {
@@ -35,21 +35,23 @@ const servers: NextApiHandler<ServersResponse | ErrorResponse> = async (req, res
   // Ensure that we can actually connect before querying Discord - only important during dev.
   await db.connect();
 
-  const guilds = (await getUserDiscordGuilds(token)).map(({ id, name, icon, permissions }): ClientDiscordGuildInfo => {
-    const iconFormat = icon.startsWith("a_") ? "gif" : "png";
+  const guilds = await getUserDiscordGuilds(token);
+
+  const clientGuilds = guilds.map(({ id, name, icon, permissions }): ClientDiscordGuildInfo => {
+    const iconFormat = icon?.startsWith("a_") ? "gif" : "png";
     return {
       id,
       name,
       can_manage: (BigInt(permissions) & BigInt(1 << 3)) === BigInt(1 << 3),
-      icon_url: `https://cdn.discordapp.com/icons/${id}/${icon}.png`,
-      hover_icon_url: `https://cdn.discordapp.com/icons/${id}/${icon}.${iconFormat}`,
+      icon_url: icon ? `https://cdn.discordapp.com/icons/${id}/${icon}.png` : null,
+      hover_icon_url: icon ? `https://cdn.discordapp.com/icons/${id}/${icon}.${iconFormat}` : null,
     }
   });
 
-  guilds.sort((a, b) => a.name.localeCompare(b.name));
+  clientGuilds.sort((a, b) => a.name.localeCompare(b.name));
 
   // IDs of user's guilds that we got data from in the last 30 days.
-  const existingGuilds = new Set(await filterListOfGuildIdsWithBotActivity(guilds.map(guild => guild.id)));
+  const existingGuilds = new Set(await filterListOfGuildIdsWithBotActivity(clientGuilds.map(guild => guild.id)));
 
   const groupedGuilds: ServersResponse = {
     added: [],
@@ -57,7 +59,7 @@ const servers: NextApiHandler<ServersResponse | ErrorResponse> = async (req, res
     other: [],
   };
 
-  for (const guild of guilds) {
+  for (const guild of clientGuilds) {
     if (existingGuilds.has(guild.id)) {
       groupedGuilds.added.push(guild);
     } else if (guild.can_manage) {

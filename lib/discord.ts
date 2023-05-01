@@ -3,7 +3,7 @@ import { JWT } from "next-auth/jwt";
 export interface DiscordGuildInfo {
     id: string,
     name: string,
-    icon: string,
+    icon: string | null,
     owner: boolean,
     permissions: string,
     features: string[],

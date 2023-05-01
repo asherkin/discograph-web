@@ -35,8 +35,8 @@ export default function Servers() {
         id: "",
         name: "Loading ...",
         can_manage: false,
-        icon_url: "",
-        hover_icon_url: "",
+        icon_url: null,
+        hover_icon_url: null,
     };
 
     let guilds: ServersResponse = {
