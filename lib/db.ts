@@ -1,16 +1,17 @@
 import serverlessMysql from "serverless-mysql";
 
-const url = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL) : null;
-if (url && url.protocol !== "mysql:") {
+const url = new URL(process.env.DATABASE_URL ?? "mysql://root@localhost/discograph");
+if (url.protocol !== "mysql:") {
     throw new Error("expected DATABASE_URL to use mysql:// scheme");
 }
+
 export const db = serverlessMysql({
     config: {
-        user: url?.username || undefined,
-        password: url?.password || undefined,
-        database: url?.pathname ? url.pathname.substring(1) : undefined,
-        host: url?.host || undefined,
-        port: (url && url.port) ? parseInt(url.port) : undefined,
+        user: url.username || undefined,
+        password: url.password || undefined,
+        database: url.pathname ? url.pathname.substring(1) : undefined,
+        host: url.hostname || undefined,
+        port: url.port ? parseInt(url.port) : undefined,
         typeCast: true,
         supportBigNumbers: true,
         bigNumberStrings: true,

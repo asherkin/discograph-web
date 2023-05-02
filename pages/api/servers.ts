@@ -16,10 +16,29 @@ export interface ServersResponse {
   added: ClientDiscordGuildInfo[],
   managed: ClientDiscordGuildInfo[],
   other: ClientDiscordGuildInfo[],
+  tokenNeedsRefresh: boolean,
 }
 
 interface ErrorResponse {
   error: string,
+}
+
+function compareGuildIdArrays(a: string[], b: string[]) {
+  const length = a.length;
+  if (length !== b.length) {
+    return false;
+  }
+
+  a = a.slice().sort();
+  b = b.slice().sort();
+
+  for (let i = 0; i < length; ++i) {
+    if (a[i] !== b[i]) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 const servers: NextApiHandler<ServersResponse | ErrorResponse> = async (req, res) => {
@@ -36,6 +55,10 @@ const servers: NextApiHandler<ServersResponse | ErrorResponse> = async (req, res
   await db.connect();
 
   const guilds = await getUserDiscordGuilds(token);
+
+  // There doesn't appear to be any way to modify the token or session from the server directly,
+  // so we have this check and pass it on to the client to make the request to refresh the token's list.
+  const tokenNeedsRefresh = !compareGuildIdArrays(token.guild_ids, guilds.map(guild => guild.id));
 
   const clientGuilds = guilds.map(({ id, name, icon, permissions }): ClientDiscordGuildInfo => {
     const iconFormat = icon?.startsWith("a_") ? "gif" : "png";
@@ -57,6 +80,7 @@ const servers: NextApiHandler<ServersResponse | ErrorResponse> = async (req, res
     added: [],
     managed: [],
     other: [],
+    tokenNeedsRefresh,
   };
 
   for (const guild of clientGuilds) {

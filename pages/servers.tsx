@@ -1,5 +1,6 @@
 import { ChevronDownIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
-import { useState } from "react";
+import { useSession } from "next-auth/react";
+import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 
 import { GuildCard, GuildCardInteraction } from "@/components/guildCard";
@@ -30,6 +31,29 @@ function GuildCardList({ guilds, subtitle, title, initialExpanded = false, inter
     </div>;
 }
 
+// This is the client-side counterpart to the hackery detailed in /api/servers.
+export function useServersAndHandleTokenRefresh() {
+    const { update } = useSession();
+
+    const tokenNeededRefresh = useRef(false);
+    const { data, error } = useSWR<ServersResponse>("/api/servers");
+
+    const tokenNeedsRefresh = data?.tokenNeedsRefresh;
+    useEffect(() => {
+        if (tokenNeedsRefresh === undefined) {
+            return;
+        }
+
+        if (tokenNeedsRefresh && !tokenNeededRefresh.current) {
+            update({ tokenNeedsRefresh });
+        }
+
+        tokenNeededRefresh.current = tokenNeedsRefresh;
+    }, [update, tokenNeedsRefresh]);
+
+    return { data, error };
+}
+
 export default function Servers() {
     let placeholderGuild: ClientDiscordGuildInfo = {
         id: "",
@@ -43,9 +67,10 @@ export default function Servers() {
         added: [placeholderGuild],
         managed: [],
         other: [],
+        tokenNeedsRefresh: false,
     };
 
-    const { data, error } = useSWR<ServersResponse>('/api/servers');
+    const { data, error } = useServersAndHandleTokenRefresh();
     if (data) {
         guilds = data;
     } else if (error) {

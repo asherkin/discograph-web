@@ -2,12 +2,14 @@ import NextAuth, { Account } from "next-auth";
 import { DefaultJWT } from "next-auth/jwt";
 import DiscordProvider from "next-auth/providers/discord";
 
+import { getUserDiscordGuilds } from "@/lib/discord";
+
 export default NextAuth({
     pages: {
         signIn: "/auth/login",
     },
     callbacks: {
-        async jwt({ token, account }) {
+        async jwt({ token, account, session }) {
             if (account) {
                 if (!isDiscordAccount(account)) {
                     throw new Error("Expected a Discord login");
@@ -17,16 +19,16 @@ export default NextAuth({
                     throw new Error("Discord token missing 'guilds' scope");
                 }
 
-                return {
+                token = {
                     ...token,
                     access_token: account.access_token,
                     refresh_token: account.refresh_token,
                     token_type: account.token_type,
                     expires_at: account.expires_at * 1000,
+                    guilds_expires_at: 0,
+                    guild_ids: [],
                 };
-            }
-
-            if (token.expires_at <= Date.now()) {
+            } else if (!token.expires_at || token.expires_at <= Date.now()) {
                 const response = await fetch("https://discord.com/api/oauth2/token", {
                     method: "POST",
                     headers: {
@@ -46,12 +48,24 @@ export default NextAuth({
                     throw tokens;
                 }
 
-                return {
-                    ...token, // Keep the previous token properties
+                token = {
+                    ...token,
                     access_token: tokens.access_token,
                     refresh_token: tokens.refresh_token,
                     token_type: tokens.token_type,
                     expires_at: Date.now() + (tokens.expires_in * 1000),
+                };
+            }
+
+            const guildsExpired = !token.guilds_expires_at || token.guilds_expires_at <= Date.now();
+            const guildsNeedsRefresh = session?.tokenNeedsRefresh;
+            if (guildsExpired || guildsNeedsRefresh) {
+                const guilds = await getUserDiscordGuilds(token);
+
+                token = {
+                    ...token,
+                    guilds_expires_at: Date.now() + (10 * 60 * 1000),
+                    guild_ids: guilds.map(guild => guild.id),
                 };
             }
 
@@ -95,6 +109,8 @@ declare module "next-auth/jwt/types" {
         refresh_token: string
         token_type: string
         expires_at: number
+        guilds_expires_at: number
+        guild_ids: string[]
     }
 }
 

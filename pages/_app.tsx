@@ -6,11 +6,11 @@ import { SWRConfig } from "swr";
 import Layout from "@/components/layout";
 import "@/styles/globals.css";
 
-const fetcher = async (...args: Parameters<typeof fetch>) => {
+export const fetcher = async (...args: Parameters<typeof fetch>) => {
   const res = await fetch(...args);
 
   if (!res.ok) {
-    const error: Error & { info?: string, status?: number } = new Error('An error occurred while fetching the data.');
+    const error: Error & { info?: string, status?: number } = new Error("An error occurred while fetching the data.");
     error.info = await res.json();
     error.status = res.status;
 

@@ -11,7 +11,7 @@ function addUtilitiesToClassName(className: string | undefined, { intent }: Butt
         primary: "bg-indigo-700 border-indigo-700 text-white hover:bg-indigo-600",
     }
 
-    return `border rounded-lg px-4 py-2 text-center ${intentClasses[intent ?? "none"]} ${className ?? ""}`;
+    return `border rounded-lg px-4 py-2 text-center leading-5 ${intentClasses[intent ?? "none"]} ${className ?? ""}`;
 }
 
 export function Button({ intent, className, ...innerProps }: PropsWithChildren<ButtonProps & Omit<DetailedHTMLProps<ButtonHTMLAttributes<HTMLButtonElement>, HTMLButtonElement>, keyof ButtonProps>>) {
