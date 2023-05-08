@@ -1,7 +1,7 @@
 import type { NextApiHandler } from "next";
 import { getToken } from "next-auth/jwt";
 
-import { db, filterListOfGuildIdsWithBotActivity } from "@/lib/db";
+import { db, filterListOfGuildIdsWithBot } from "@/lib/db";
 import { getUserDiscordGuilds } from "@/lib/discord";
 
 export interface ClientDiscordGuildInfo {
@@ -73,8 +73,7 @@ const servers: NextApiHandler<ServersResponse | ErrorResponse> = async (req, res
 
   clientGuilds.sort((a, b) => a.name.localeCompare(b.name));
 
-  // IDs of user's guilds that we got data from in the last 30 days.
-  const existingGuilds = new Set(await filterListOfGuildIdsWithBotActivity(clientGuilds.map(guild => guild.id)));
+  const existingGuilds = new Set(await filterListOfGuildIdsWithBot(clientGuilds.map(guild => guild.id)));
 
   const groupedGuilds: ServersResponse = {
     added: [],

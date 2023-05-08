@@ -3,6 +3,7 @@ import { useSession } from "next-auth/react";
 import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 
+import { Callout } from "@/components/core";
 import { GuildCard, GuildCardInteraction } from "@/components/guildCard";
 import { ClientDiscordGuildInfo, ServersResponse } from "@/pages/api/servers";
 
@@ -76,9 +77,9 @@ export default function Servers() {
     } else if (error) {
         // We'll only display an error if we've never loaded data - guilds don't change often.
         return <div className="flex-grow flex items-center justify-center p-6">
-            <div className="bg-red-50 text-red-950 border-red-700 dark:bg-red-950 dark:text-red-100 border border-s-4 p-4 rounded-xl">
+            <Callout intent="danger">
                 Failed to load server information, please try again later.
-            </div>
+            </Callout>
         </div>;
     }
 

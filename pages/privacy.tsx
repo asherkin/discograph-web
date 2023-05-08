@@ -10,6 +10,7 @@ export default function Privacy() {
             There is also this companion website, where users can login and see which of the servers they have
             joined that the bot is also present in, and perform actions related to the collected data.
         </p>
+        <p>DiscoGraph will never provide any of your data to third parties.</p>
 
         <h4>Data We Routinely Store</h4>
         <p>

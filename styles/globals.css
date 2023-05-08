@@ -1,3 +1,8 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Used by the <GuildGraph /> component */
+.rounded-lg .scene-container > canvas {
+    border-radius: 0.5rem;
+}

@@ -19,12 +19,16 @@ export const db = serverlessMysql({
 });
 
 /**
- * Return IDs of user's guilds that we got data from in the last 30 days.
+ * Filter a list of guild IDs to those where the bot is present.
  */
-export async function filterListOfGuildIdsWithBotActivity(ids: string[]): Promise<string[]> {
-    const results = await db.query<{ guild: string }[]>(
-        "SELECT guild FROM events WHERE guild IN (?) GROUP BY guild HAVING MAX(timestamp) >= ((UNIX_TIMESTAMP() - 2592000) * 1000)",
+export async function filterListOfGuildIdsWithBot(ids: string[]): Promise<string[]> {
+    if (ids.length === 0) {
+        return [];
+    }
+
+    const results = await db.query<{ id: string }[]>(
+        "SELECT id FROM guilds WHERE id IN (?) AND departed IS NULL",
         [ids]);
 
-    return results.map(row => row.guild);
+    return results.map(row => row.id);
 }
