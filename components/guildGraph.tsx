@@ -7,7 +7,7 @@ import ForceGraph3D, {
     NodeObject,
 } from "react-force-graph-3d";
 import useSWRInfinite, { SWRInfiniteKeyLoader } from "swr/infinite";
-import { Color, Mesh, Object3D, ShaderMaterial, SphereGeometry, TextureLoader } from "three";
+import { Color, Mesh, Object3D, ShaderMaterial, SphereGeometry, Texture, TextureLoader } from "three";
 
 import { Callout } from "@/components/core";
 import { ClientGuildMember, ServerResponse } from "@/pages/api/server/[id]";
@@ -67,10 +67,7 @@ function subscribeDarkMode(callback: () => void) {
 }
 
 function getNodeThreeObject(cache: Map<string, Mesh<SphereGeometry, ShaderMaterial>>, selectedNode: string | null, node: Node): Object3D {
-    // If we start streaming in new data and having weights change, it probably makes
-    // sense to split these up and have separate caches for the material and geometry.
-    // We might even want to move the weight scaling to the shader to keep the cache small.
-    const key = `${node.image_url}-${node.weight}`;
+    const key = `${node.id}-${node.image_url}`;
 
     let object = cache.get(key);
     if (!object) {
@@ -83,94 +80,104 @@ function getNodeThreeObject(cache: Map<string, Mesh<SphereGeometry, ShaderMateri
     const material = object.material;
     material.transparent = transparent;
     material.needsUpdate = true;
+    material.uniforms.scale.value = Math.sqrt(node.weight);
     material.uniforms.opacity.value = transparent ? 0.2 : 1.0;
     material.uniformsNeedUpdate = true;
+
+    // This doesn't affect the visual rendering as we zero it out in the shader (to remove the rotation) and
+    // use the uniform instead, but it has to be set otherwise mouse interaction uses the wrong node size.
+    object.scale.setScalar(material.uniforms.scale.value);
 
     return object;
 }
 
-function createNodeThreeObject({ image_url, weight }: Node) {
+const OBJECT_MATERIAL = new ShaderMaterial({
+    transparent: true,
+    uniforms: {
+        scale: { value: 1.0 },
+        tex: { value: new Texture() },
+        opacity: { value: 1.0 },
+        background: { value: new Color(1.0, 1.0, 1.0) },
+        borderWidth: { value: 2.0 },
+        borderColor: { value: new Color(1.0, 0.0, 0.0) },
+    },
+    vertexShader: /* glsl */`
+        #include <common>
+        
+        uniform float scale;
+
+        varying vec3 vNormal;
+        varying vec3 vPosition;
+        
+        #include <logdepthbuf_pars_vertex>
+
+        void main() {
+            vNormal = normal;
+            vPosition = (modelViewMatrix * vec4(position.xyz * scale, 1.0)).xyz;
+            gl_Position = projectionMatrix * (modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0) + vec4(position.xy * scale, (position.z * scale) / 4.0, 1.0));
+            
+            #include <logdepthbuf_vertex>
+        }
+    `,
+    fragmentShader: /* glsl */`
+        #include <common>
+
+        #include <logdepthbuf_pars_fragment>
+        
+        uniform sampler2D tex;
+        uniform float opacity;
+        uniform vec3 background;
+        uniform float borderWidth;
+        uniform vec3 borderColor;
+
+        varying vec3 vNormal;
+        varying vec3 vPosition;
+        
+        void main() {
+            #include <logdepthbuf_fragment>
+        
+            vec3 norm = normalize(vNormal);
+            // gl_FragColor = vec4(norm.z, 0.0, 0.0, 1.0);
+            
+            vec2 uv = (norm.xy * 0.5) + 0.5;
+            vec4 color = texture2D(tex, uv);
+            // gl_FragColor = color;
+            
+            // vec3 cameraViewPos = mat3(transpose(inverse(viewMatrix))) * cameraPosition;
+            // vec3 lightPos = cameraViewPos + vec3(200.0, 200.0, 200.0);
+            // vec3 lightDir = normalize(lightPos - vPosition);
+            vec3 lightDir = normalize(vec3(0.5, 0.5, 1.0));
+            // gl_FragColor = vec4(lightDir, 1.0);
+            
+            float diffuse = max(dot(norm, lightDir), 0.0);
+            vec3 light = vec3(0.4, 0.4, 0.4) + (diffuse * vec3(0.6, 0.6, 0.6));
+            // gl_FragColor = vec4(light, 1.0);
+            
+            // float border = (norm.z < 0.4) ? 1.0 : 0.0;
+            // gl_FragColor = vec4(border, 0.0, 0.0, 1.0);
+            
+            vec3 colorMul = color.rgb * color.a;
+            vec3 backgroundMul = background * (1.0 - color.a);
+            // vec3 notBorderMul = light * (backgroundMul + colorMul) * (1.0 - border);
+            // vec3 borderMul = borderColor * border;
+            gl_FragColor = vec4(light * (backgroundMul + colorMul), opacity);
+        }
+    `,
+});
+
+const OBJECT_GEOMETRY = new SphereGeometry(1, 12, 12);
+
+function createNodeThreeObject({ image_url }: Node) {
     // Cache.enabled = true;
 
     const url = image_url ?? "https://cdn.discordapp.com/embed/avatars/1.png";
     const texture = new TextureLoader().load(url);
     texture.colorSpace = "srgb-linear";
 
-    const material = new ShaderMaterial({
-        transparent: true,
-        uniforms: {
-            tex: { value: texture },
-            opacity: { value: 1.0 },
-            background: { value: new Color(1.0, 1.0, 1.0) },
-            borderWidth: { value: 2.0 },
-            borderColor: { value: new Color(1.0, 0.0, 0.0) },
-        },
-        vertexShader: /* glsl */`
-            #include <common>
+    const material = OBJECT_MATERIAL.clone();
+    material.uniforms.tex.value = texture;
 
-            varying vec3 vNormal;
-            varying vec3 vPosition;
-            
-            #include <logdepthbuf_pars_vertex>
-
-            void main() {
-                vNormal = normal;
-                vPosition = (modelViewMatrix * vec4(position.xyz, 1.0)).xyz;
-                gl_Position = projectionMatrix * (modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0) + vec4(position.xy, position.z / 4.0, 1.0));
-                
-                #include <logdepthbuf_vertex>
-            }
-        `,
-        fragmentShader: /* glsl */`
-            #include <common>
-
-            #include <logdepthbuf_pars_fragment>
-            
-            uniform sampler2D tex;
-            uniform float opacity;
-            uniform vec3 background;
-            uniform float borderWidth;
-            uniform vec3 borderColor;
-
-            varying vec3 vNormal;
-            varying vec3 vPosition;
-            
-            void main() {
-                #include <logdepthbuf_fragment>
-            
-                vec3 norm = normalize(vNormal);
-                // gl_FragColor = vec4(norm.z, 0.0, 0.0, 1.0);
-                
-                vec2 uv = (norm.xy * 0.5) + 0.5;
-                vec4 color = texture2D(tex, uv);
-                // gl_FragColor = color;
-                
-                // vec3 cameraViewPos = mat3(transpose(inverse(viewMatrix))) * cameraPosition;
-                // vec3 lightPos = cameraViewPos + vec3(200.0, 200.0, 200.0);
-                // vec3 lightDir = normalize(lightPos - vPosition);
-                vec3 lightDir = normalize(vec3(0.5, 0.5, 1.0));
-                // gl_FragColor = vec4(lightDir, 1.0);
-                
-                float diffuse = max(dot(norm, lightDir), 0.0);
-                vec3 light = vec3(0.4, 0.4, 0.4) + (diffuse * vec3(0.6, 0.6, 0.6));
-                // gl_FragColor = vec4(light, 1.0);
-                
-                // float border = (norm.z < 0.4) ? 1.0 : 0.0;
-                // gl_FragColor = vec4(border, 0.0, 0.0, 1.0);
-                
-                vec3 colorMul = color.rgb * color.a;
-                vec3 backgroundMul = background * (1.0 - color.a);
-                // vec3 notBorderMul = light * (backgroundMul + colorMul) * (1.0 - border);
-                // vec3 borderMul = borderColor * border;
-                gl_FragColor = vec4(light * (backgroundMul + colorMul), opacity);
-            }
-        `,
-    });
-
-    const radius = Math.sqrt(weight);
-    const geometry = new SphereGeometry(radius, 12, 12);
-
-    return new Mesh(geometry, material);
+    return new Mesh(OBJECT_GEOMETRY, material);
 }
 
 // TODO: This needs a rewrite and tidy up now that we know what we're doing with it.
