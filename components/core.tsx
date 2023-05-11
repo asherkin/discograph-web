@@ -1,5 +1,11 @@
 import Link, { LinkProps } from "next/link";
-import React, { AnchorHTMLAttributes, ButtonHTMLAttributes, DetailedHTMLProps, PropsWithChildren } from "react";
+import React, {
+    AnchorHTMLAttributes,
+    ButtonHTMLAttributes,
+    ComponentPropsWithoutRef,
+    DetailedHTMLProps,
+    PropsWithChildren,
+} from "react";
 
 interface ButtonProps {
     intent?: "none" | "primary",
@@ -45,4 +51,34 @@ export function Callout({ intent, className: extraClassName = "", ...innerProps 
     const className = `border border-s-4 p-4 rounded-xl ${intentClasses[intent]} ${extraClassName}`;
 
     return <div className={className} {...innerProps} />
+}
+
+interface RangeInputProps extends Omit<ComponentPropsWithoutRef<"input">, "type" | "className"> {
+    label?: string,
+    help?: string,
+}
+
+export function RangeInput({ label, help, ...props }: RangeInputProps) {
+    return <label className="block mb-3">
+        {label}
+        <input type="range" className="block w-full mt-1" {...props} />
+        {help && <div className="text-xs opacity-60">
+            {help}
+        </div>}
+    </label>;
+}
+
+interface CheckboxInputProps extends Omit<ComponentPropsWithoutRef<"input">, "type" | "className"> {
+    label?: string,
+    help?: string,
+}
+
+export function CheckboxInput({ label, help, ...props }: CheckboxInputProps) {
+    return <label className="block mb-3">
+        <input type="checkbox" className="float-left h-6 me-2" {...props} />
+        {label}
+        {help && <div className="text-xs opacity-60">
+            {help}
+        </div>}
+    </label>;
 }

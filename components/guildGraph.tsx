@@ -10,10 +10,12 @@ import useSWRInfinite, { SWRInfiniteKeyLoader } from "swr/infinite";
 import { Color, Mesh, Object3D, ShaderMaterial, SphereGeometry, Texture, TextureLoader } from "three";
 
 import { Callout } from "@/components/core";
+import { DEFAULT_GRAPH_CONFIG, GraphConfig } from "@/lib/guildGraphConfig";
 import { ClientGuildMember, ServerResponse } from "@/pages/api/server/[id]";
 
 interface GuildGraphProps {
     guild: string,
+    graphConfig?: GraphConfig,
 }
 
 interface Node {
@@ -180,29 +182,44 @@ function createNodeThreeObject({ image_url }: Node) {
     return new Mesh(OBJECT_GEOMETRY, material);
 }
 
+interface ComputedGraphData extends GraphData<Node, Link> {
+    stats: {
+        nodeCount: number,
+        oldestEvent: number | undefined,
+        newestEvent: number | undefined,
+        eventsLoaded: number,
+        eventsProcessed: number,
+        eventsIncluded: number,
+    },
+}
+
 // TODO: This needs a rewrite and tidy up now that we know what we're doing with it.
-function computeGraphData(events: ServerResponse[], setSize: (size: number) => void): GraphData<Node, Link> {
-    const weights = [
-        0.0, // Invalid = 0,
-        0.1, // Reaction = 1,
-        2.0, // MessageDirectMention = 2,
-        1.0, // MessageIndirectMention = 3,
-        0.5, // MessageAdjacency = 4,
-        0.5, // MessageBinarySequence = 5,
+function computeGraphData(config: GraphConfig, events: ServerResponse[], setSize: (size: number) => void): ComputedGraphData {
+    const WEIGHT_KEYS = [
+        undefined,
+        "reaction",
+        "message-direct-mention",
+        "message-indirect-mention",
+        "message-adjacency",
+        "message-binary-sequence",
     ] as const;
 
-    let decay = 1.0;
-
-    // TODO: Expose these as sliders.
-    const decayAmount = 0.001;
-    const decayThreshold = 0.6;
-    const linkThreshold = 2.0;
-    const nodeThreshold = 4.0;
+    const decayAmount = config.decayAmount ?? DEFAULT_GRAPH_CONFIG.decayAmount;
+    const decayThreshold = config.decayThreshold ?? DEFAULT_GRAPH_CONFIG.decayThreshold;
+    const linkThreshold = config.linkThreshold ?? DEFAULT_GRAPH_CONFIG.linkThreshold;
+    const nodeThreshold = config.nodeThreshold ?? DEFAULT_GRAPH_CONFIG.nodeThreshold;
 
     const userInfo = new Map<string, ClientGuildMember>();
 
     const nodes = new Map<string, number>();
     const links = new Map<string, number>();
+
+    let decay = 1.0;
+    let oldestEvent: number | undefined = undefined;
+    let newestEvent: number | undefined = undefined;
+    let eventsLoaded = events.reduce((total, chunk) => total + chunk.events.length, 0);
+    let eventsProcessed = 0;
+    let eventsIncluded = 0;
 
     for (const chunk of events) {
         for (const user of chunk.users) {
@@ -210,9 +227,27 @@ function computeGraphData(events: ServerResponse[], setSize: (size: number) => v
         }
 
         for (const event of chunk.events) {
-            const weight = (weights[event.reason] ?? 0.0) * decay;
+            eventsProcessed += 1;
 
-            if (userInfo.get(event.source)?.bot || userInfo.get(event.target)?.bot) {
+            oldestEvent = parseInt(event.timestamp, 10);
+
+            if (newestEvent === undefined) {
+                newestEvent = oldestEvent;
+            }
+
+            const eventType = WEIGHT_KEYS[event.reason];
+            if (eventType === undefined) {
+                continue;
+            }
+
+            const eventWeight = (config.weights && config.weights[eventType]) ?? DEFAULT_GRAPH_CONFIG.weights[eventType] ?? 0;
+            if (eventWeight <= 0) {
+                continue;
+            }
+
+            const weight = eventWeight * decay;
+
+            if (config.excludeBots && (userInfo.get(event.source)?.bot || userInfo.get(event.target)?.bot)) {
                 continue;
             }
 
@@ -223,6 +258,8 @@ function computeGraphData(events: ServerResponse[], setSize: (size: number) => v
             links.set(key, (links.get(key) ?? 0) + weight);
 
             decay -= weight * decayAmount;
+
+            eventsIncluded += 1;
 
             if (decay <= decayThreshold) {
                 break;
@@ -278,6 +315,14 @@ function computeGraphData(events: ServerResponse[], setSize: (size: number) => v
     return {
         nodes: nodesArray,
         links: linksArray,
+        stats: {
+            nodeCount: nodesArray.length,
+            oldestEvent,
+            newestEvent,
+            eventsLoaded,
+            eventsProcessed,
+            eventsIncluded,
+        }
     };
 }
 
@@ -319,7 +364,14 @@ function MyForceGraph3D({ graphRef, ...props }: ForceGraphProps<Node, Link> & { 
         graph.d3Force("center", centerForce);
 
         graph.d3Force("link")
-            ?.distance((link: Link) => 30 * (1 / Math.sqrt(link.weight)));
+            ?.distance((link: LinkObject<Node, Link>) => {
+                let minimumDistance = 0;
+                if (typeof link.source === "object" && typeof link.target === "object") {
+                    minimumDistance = 1.2 * (Math.sqrt(link.source.weight) + Math.sqrt(link.target.weight));
+                }
+
+                return Math.max(minimumDistance, 30 * Math.min(1 / Math.sqrt(link.weight), 1));
+            });
 
         let timeout: any = setTimeout(() => {
             graph.zoomToFit(1000, 0);
@@ -336,16 +388,19 @@ function MyForceGraph3D({ graphRef, ...props }: ForceGraphProps<Node, Link> & { 
     return <ForceGraph3D ref={innerGraphRef} {...props} />;
 }
 
-export default function GuildGraph({ guild }: GuildGraphProps) {
+export default function GuildGraph({ guild, graphConfig }: GuildGraphProps) {
     const { data: events, error: eventsError, setSize } = useGuildEvents(guild);
     // console.log(id, events, eventsError);
 
-    const [ graphData, setGraphData ] = useState<GraphData<Node, Link>>({ nodes: [], links: [] });
+    const [ graphData, setGraphData ] = useState<ComputedGraphData | undefined>(undefined);
     useEffect(() => {
         if (events) {
-            setGraphData(computeGraphData(events, setSize));
+            setGraphData(computeGraphData(graphConfig ?? {}, events, setSize));
         }
-    }, [events, setSize]);
+    }, [graphConfig, events, setSize]);
+
+    // TODO: Pass this to the parent component for display.
+    console.log(graphData?.stats);
 
     const graphRef = useRef<ForceGraphMethods<Node, Link> | undefined>();
 
@@ -431,7 +486,7 @@ export default function GuildGraph({ guild }: GuildGraphProps) {
         </div>;
     }
 
-    if (!events) {
+    if (!graphData) {
         return <div className="flex-grow flex items-center justify-center p-6">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-20 w-20 flex-1 animate-spin stroke-current stroke-1" fill="none" viewBox="0 0 24 24">
                 <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" className="stroke-current opacity-25" />
@@ -443,7 +498,7 @@ export default function GuildGraph({ guild }: GuildGraphProps) {
     if (graphData.nodes.length === 0) {
         return <div className="flex-grow flex items-center justify-center p-6">
             <Callout intent="warning">
-                Not enough data to display a graph, please try again later.
+                Not enough data to display a graph, adjust settings or wait for more data.
             </Callout>
         </div>;
     }
