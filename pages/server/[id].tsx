@@ -35,18 +35,20 @@ export default function Server() {
         </Callout>
     </div>;
 
-    return <div className="flex flex-row flex-grow justify-end">
-        <div className="flex-grow border rounded-lg flex z-10 -mb-12">
+    return <div className="flex flex-col lg:flex-row flex-grow justify-end">
+        <div className="flex-grow border rounded-lg flex z-10 lg:-mb-12 max-lg:min-h-[calc(100vh-9.5rem)]">
             {guild ? <GuildGraph key={guild.id} guild={guild.id} /> : guildErrorCallout}
         </div>
-        <div className="w-80 ms-6 overflow-y-auto">
-            <h2 className="text-right text-2xl border-b mb-4">{guild?.name ?? <>&nbsp;</>}</h2>
-            <Callout intent="warning" className="mb-4">
-                This page is very much a work in progress. More coming soon.
-            </Callout>
-            <Callout intent="warning" className="mb-4">
-                Some users will be missing name and avatar information, this is expected.
-            </Callout>
+        <div className="max-lg:mt-6 lg:w-80 lg:ms-6 lg:max-h-[calc(100vh-15.5rem)]">
+            <h2 className="lg:text-right text-2xl border-b mb-4">{guild?.name ?? <>&nbsp;</>}</h2>
+            <div className="h-full overflow-y-auto">
+                <Callout intent="warning" className="mb-4">
+                    This page is very much a work in progress. More coming soon.
+                </Callout>
+                <Callout intent="warning" className="mb-4">
+                    Some users will be missing name and avatar information, this is expected.
+                </Callout>
+            </div>
         </div>
     </div>;
 }
