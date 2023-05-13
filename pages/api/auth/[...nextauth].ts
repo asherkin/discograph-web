@@ -1,8 +1,8 @@
-import NextAuth, { Account } from "next-auth";
+import NextAuth, { Account, DefaultSession } from "next-auth";
 import { DefaultJWT } from "next-auth/jwt";
 import DiscordProvider from "next-auth/providers/discord";
 
-import { getUserGuilds } from "@/lib/discord";
+import { getApplicationInfo, getUserGuilds } from "@/lib/discord";
 
 export default NextAuth({
     pages: {
@@ -25,7 +25,8 @@ export default NextAuth({
                     refresh_token: account.refresh_token,
                     token_type: account.token_type,
                     expires_at: account.expires_at * 1000,
-                    guilds_expires_at: 0,
+                    auth_expires_at: 0,
+                    role: "user",
                     guild_ids: [],
                 };
             } else if (!token.expires_at || token.expires_at <= Date.now()) {
@@ -57,20 +58,32 @@ export default NextAuth({
                 };
             }
 
-            const guildsExpired = !token.guilds_expires_at || token.guilds_expires_at <= Date.now();
-            const guildsNeedsRefresh = session?.tokenNeedsRefresh;
-            if (guildsExpired || guildsNeedsRefresh) {
-                const guilds = await getUserGuilds(token);
+            const authExpired = !token.auth_expires_at || token.auth_expires_at <= Date.now();
+            const authNeedsRefresh = session?.tokenNeedsRefresh;
+            if (authExpired || authNeedsRefresh) {
+                const [application, guilds] = await Promise.all([
+                    getApplicationInfo(),
+                    getUserGuilds(token),
+                ]);
+
+                const adminIds = new Set(application.team ? application.team.members.map(member => member.user.id) : []);
 
                 token = {
                     ...token,
-                    guilds_expires_at: Date.now() + (10 * 60 * 1000),
+                    auth_expires_at: Date.now() + (10 * 60 * 1000),
+                    role: adminIds.has(token.sub) ? "admin" : "user",
                     guild_ids: guilds.map(guild => guild.id),
                 };
             }
 
             return token;
         },
+        async session({ session, token }) {
+            return {
+                ...session,
+                role: token.role,
+            };
+        }
     },
     providers: [
         DiscordProvider({
@@ -87,14 +100,12 @@ export default NextAuth({
                     const defaultAvatarNumber = parseInt(profile.discriminator) % 5;
                     profile.image_url = `https://cdn.discordapp.com/embed/avatars/${defaultAvatarNumber}.png`;
                 } else {
-                    // const format = guild.icon.startsWith("a_") ? "gif" : "png";
-                    const format = "png";
-                    profile.image_url = `https://cdn.discordapp.com/avatars/${profile.id}/${profile.avatar}.${format}`;
+                    profile.image_url = `https://cdn.discordapp.com/avatars/${profile.id}/${profile.avatar}.png`;
                 }
 
                 return {
                     id: profile.id,
-                    name: `${profile.username}#${profile.discriminator.padStart(4, "0")}`,
+                    name: `${profile.username}#${profile.discriminator}`,
                     email: profile.email,
                     image: profile.image_url,
                 };
@@ -103,13 +114,22 @@ export default NextAuth({
     ],
 });
 
+declare module "next-auth/core/types" {
+    interface Session extends DefaultSession {
+        role: "admin" | "user"
+    }
+}
+
 declare module "next-auth/jwt/types" {
     interface JWT extends DefaultJWT {
+        // Discord user ID
+        sub: string,
         access_token: string
         refresh_token: string
         token_type: string
         expires_at: number
-        guilds_expires_at: number
+        auth_expires_at: number
+        role: "admin" | "user"
         guild_ids: string[]
     }
 }

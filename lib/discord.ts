@@ -165,3 +165,31 @@ export interface GuildInfo {
 export async function getUserGuilds(token: JWT): Promise<GuildInfo[]> {
     return makeDiscordRequestAsUser(token, "/users/@me/guilds", "/users/@me/guilds");
 }
+
+// This should be avoided where possible, as it shares rate limits with the live bot.
+export function makeDiscordRequestAsApp<T>(pathname: string, rateLimitPath: string): Promise<T> {
+    const authorizationHeader = `Bot ${process.env.DISCORD_TOKEN}`;
+
+    return makeDiscordRequest(authorizationHeader, pathname, rateLimitPath);
+}
+
+export interface UserInfo {
+    id: string,
+    username: string,
+    discriminator: string,
+    avatar: string,
+}
+
+export interface ApplicationInfo {
+    id: string,
+    name: string,
+    team: {
+        members: {
+            user: Pick<UserInfo, "id" | "username" | "discriminator" | "avatar">,
+        }[],
+    } | null,
+}
+
+export async function getApplicationInfo(): Promise<ApplicationInfo> {
+    return makeDiscordRequestAsApp("/oauth2/applications/@me", "/oauth2/applications/@me");
+}
