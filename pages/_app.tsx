@@ -6,7 +6,7 @@ import { SWRConfig } from "swr";
 import Layout from "@/components/layout";
 import "@/styles/globals.css";
 
-export const fetcher = async (...args: Parameters<typeof fetch>) => {
+export async function fetcher<T = any>(...args: Parameters<typeof fetch>): Promise<T> {
   const res = await fetch(...args);
 
   if (!res.ok) {

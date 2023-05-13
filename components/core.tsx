@@ -28,8 +28,8 @@ function addUtilitiesToClassName(className: string | undefined, { intent, disabl
     return `border rounded-lg px-4 py-2 text-center leading-5 ${intentClasses[intent ?? "none"]} ${disabled ? disabledClasses : intentHoverClasses[intent ?? "none"]} ${className ?? ""}`;
 }
 
-export function Button({ intent, disabled = false, className, ...innerProps }: PropsWithChildren<ButtonProps & Omit<DetailedHTMLProps<ButtonHTMLAttributes<HTMLButtonElement>, HTMLButtonElement>, keyof ButtonProps>>) {
-    return <button type="button" className={addUtilitiesToClassName(className, { intent, disabled })} disabled={disabled} {...innerProps} />
+export function Button({ intent, disabled = false, type = "button", className, ...innerProps }: PropsWithChildren<ButtonProps & Omit<DetailedHTMLProps<ButtonHTMLAttributes<HTMLButtonElement>, HTMLButtonElement>, keyof ButtonProps>>) {
+    return <button type={type} className={addUtilitiesToClassName(className, { intent, disabled })} disabled={disabled} {...innerProps} />
 }
 
 export function LinkButton({ intent, className, ...innerProps }: PropsWithChildren<ButtonProps & Omit<Omit<DetailedHTMLProps<AnchorHTMLAttributes<HTMLAnchorElement>, HTMLAnchorElement>, keyof LinkProps> & LinkProps & React.RefAttributes<HTMLAnchorElement>, keyof ButtonProps>>) {
@@ -53,28 +53,33 @@ export function Callout({ intent, className: extraClassName = "", ...innerProps 
     return <div className={className} {...innerProps} />
 }
 
-interface RangeInputProps extends Omit<ComponentPropsWithoutRef<"input">, "type" | "className"> {
+interface InputProps extends Omit<ComponentPropsWithoutRef<"input">, "type" | "className"> {
     label?: string,
     help?: string,
 }
 
-export function RangeInput({ label, help, ...props }: RangeInputProps) {
+export function TextInput({ label, help, ...props }: InputProps) {
     return <label className="block mb-3">
         {label}
-        <input type="range" className="block w-full mt-1" {...props} />
-        {help && <div className="text-xs opacity-60">
+        <input type="text" className="block w-full mt-1 px-2 py-1 border rounded-lg" {...props} />
+        {help && <div className="ms-0.5 mt-1 text-xs opacity-60">
             {help}
         </div>}
     </label>;
 }
 
-interface CheckboxInputProps extends Omit<ComponentPropsWithoutRef<"input">, "type" | "className"> {
-    label?: string,
-    help?: string,
+export function RangeInput({ label, help, ...props }: InputProps) {
+    return <label className="block mb-3">
+        {label}
+        <input type="range" className="block w-full mt-1" {...props} />
+        {help && <div className="ms-0.5 text-xs opacity-60">
+            {help}
+        </div>}
+    </label>;
 }
 
-export function CheckboxInput({ label, help, ...props }: CheckboxInputProps) {
-    return <label className="block mb-3">
+export function CheckboxInput({ label, help, ...props }: InputProps) {
+    return <label className="block mb-3 ps-0.5">
         <input type="checkbox" className="float-left h-6 me-2" {...props} />
         {label}
         {help && <div className="text-xs opacity-60">

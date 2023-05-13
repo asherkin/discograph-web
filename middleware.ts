@@ -5,6 +5,7 @@ export { default } from "next-auth/middleware";
 
 export const config = {
     matcher: [
+        "/test",
         "/servers",
         "/server/:path*",
     ],

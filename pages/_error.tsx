@@ -3,6 +3,7 @@ import Head from "next/head";
 
 const statusCodes: { [code: number]: string } = {
     400: 'Bad Request',
+    401: 'Unauthorized',
     404: 'This page could not be found',
     405: 'Method Not Allowed',
     500: 'Internal Server Error',
