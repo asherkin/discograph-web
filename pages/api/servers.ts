@@ -2,7 +2,7 @@ import type { NextApiHandler } from "next";
 import { getToken } from "next-auth/jwt";
 
 import { db, filterListOfGuildIdsWithBot } from "@/lib/db";
-import { getUserDiscordGuilds } from "@/lib/discord";
+import { getUserGuilds } from "@/lib/discord";
 
 export interface ClientDiscordGuildInfo {
   id: string,
@@ -54,7 +54,7 @@ const servers: NextApiHandler<ServersResponse | ErrorResponse> = async (req, res
   // Ensure that we can actually connect before querying Discord - only important during dev.
   await db.connect();
 
-  const guilds = await getUserDiscordGuilds(token);
+  const guilds = await getUserGuilds(token);
 
   // There doesn't appear to be any way to modify the token or session from the server directly,
   // so we have this check and pass it on to the client to make the request to refresh the token's list.

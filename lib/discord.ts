@@ -1,13 +1,11 @@
 import { JWT } from "next-auth/jwt";
 
-const pendingRequests = new Map<string, Promise<any>>();
-
 const rateLimitBucketKeys = new Map<string, string>();
 const rateLimitBuckets = new Map<string, { resetAt: number, remaining: number }>();
 
-async function makeDiscordRequestInner<T>(requestKey: string, authorizationHeader: string, pathname: string, attempt: number): Promise<T> {
+async function makeDiscordRequestInner<T>(rateLimitKey: string, authorizationHeader: string, pathname: string, attempt: number): Promise<T> {
     // Get the currently known rate limit bucket key from previous requests.
-    let rateLimitBucketKey = rateLimitBucketKeys.get(requestKey);
+    let rateLimitBucketKey = rateLimitBucketKeys.get(rateLimitKey);
     const rateLimitBucket = (rateLimitBucketKey !== undefined) ?
         rateLimitBuckets.get(rateLimitBucketKey) :
         undefined;
@@ -40,7 +38,7 @@ async function makeDiscordRequestInner<T>(requestKey: string, authorizationHeade
     const newRateLimitBucketKey = response.headers.get("x-ratelimit-bucket");
     if (newRateLimitBucketKey !== null && newRateLimitBucketKey !== rateLimitBucketKey) {
         rateLimitBucketKey = newRateLimitBucketKey;
-        rateLimitBucketKeys.set(requestKey, rateLimitBucketKey);
+        rateLimitBucketKeys.set(rateLimitKey, rateLimitBucketKey);
     }
 
     // If we have a bucket key, update the rate limit info too.
@@ -72,7 +70,7 @@ async function makeDiscordRequestInner<T>(requestKey: string, authorizationHeade
         });
 
         // Not a server-side error, so maintain the attempt count.
-        return makeDiscordRequestInner(requestKey, authorizationHeader, pathname, attempt);
+        return makeDiscordRequestInner(rateLimitKey, authorizationHeader, pathname, attempt);
     }
 
     // We'll retry after 0.1s, then again after 1s, then give up.
@@ -84,14 +82,10 @@ async function makeDiscordRequestInner<T>(requestKey: string, authorizationHeade
             setTimeout(resolve, retryAfter * 1000);
         });
 
-        return makeDiscordRequestInner(requestKey, authorizationHeader, pathname, attempt + 1);
+        return makeDiscordRequestInner(rateLimitKey, authorizationHeader, pathname, attempt + 1);
     }
 
-    // Mark this request as done so future calls re-request.
-    // We add a short delay to successful requests to debounce repeated calls - we get a lot of requests on login.
     setTimeout(() => {
-        pendingRequests.delete(requestKey);
-
         // Use this time to clean up any expired rate limit buckets.
         // We could do this less often than every request.
         const now = Date.now();
@@ -108,19 +102,22 @@ async function makeDiscordRequestInner<T>(requestKey: string, authorizationHeade
                 rateLimitBucketKeys.delete(requestKey);
             }
         }
-    }, response.ok ? 5000 : 0);
+    }, 0);
 
     if (!response.ok) {
-        throw new Error(`${response.status} error from discord for ${pathname}: ${JSON.stringify(body)}`);
+        const error: Error & { discordStatusCode?: number } = new Error(`${response.status} error from discord for ${pathname}: ${JSON.stringify(body)}`);
+        error.discordStatusCode = response.status;
+
+        throw error;
     }
 
     return body;
 }
 
-function makeDiscordRequest<T>(token: JWT, pathname: string): Promise<T> {
-    const authorizationHeader = `${token.token_type} ${token.access_token}`;
-    const requestKey = `${authorizationHeader} ${pathname}`;
+const pendingRequests = new Map<string, Promise<any>>();
 
+function makeDiscordRequest<T>(authorizationHeader: string, pathname: string, rateLimitPath: string): Promise<T> {
+    const requestKey = `${authorizationHeader} ${pathname}`;
     const pendingRequest = pendingRequests.get(requestKey);
     if (pendingRequest) {
         // console.log(`Request for ${pathname} already in-flight, queueing`);
@@ -128,13 +125,35 @@ function makeDiscordRequest<T>(token: JWT, pathname: string): Promise<T> {
     }
 
     // console.log(`New request for ${pathname}`);
-    const newRequest = makeDiscordRequestInner<T>(requestKey, authorizationHeader, pathname, 0);
+    const rateLimitKey = `${authorizationHeader} ${rateLimitPath}`;
+    const newRequest = makeDiscordRequestInner<T>(rateLimitKey, authorizationHeader, pathname, 0);
+
     pendingRequests.set(requestKey, newRequest);
+
+    newRequest
+        .then(() => true, () => false)
+        .then(async (succeeded: boolean) => {
+            // We add a short delay to successful requests to debounce repeated calls - we get a lot of requests on login.
+            if (succeeded) {
+                await new Promise(resolve => {
+                    setTimeout(resolve, 5000);
+                });
+            }
+
+            // Mark this request as done so future calls re-request.
+            pendingRequests.delete(requestKey);
+        });
 
     return newRequest;
 }
 
-export interface DiscordGuildInfo {
+export function makeDiscordRequestAsUser<T>(token: JWT, pathname: string, rateLimitPath: string): Promise<T> {
+    const authorizationHeader = `${token.token_type} ${token.access_token}`;
+
+    return makeDiscordRequest(authorizationHeader, pathname, rateLimitPath);
+}
+
+export interface GuildInfo {
     id: string,
     name: string,
     icon: string | null,
@@ -143,6 +162,6 @@ export interface DiscordGuildInfo {
     features: string[],
 }
 
-export async function getUserDiscordGuilds(token: JWT): Promise<DiscordGuildInfo[]> {
-    return makeDiscordRequest(token, "/users/@me/guilds");
+export async function getUserGuilds(token: JWT): Promise<GuildInfo[]> {
+    return makeDiscordRequestAsUser(token, "/users/@me/guilds", "/users/@me/guilds");
 }

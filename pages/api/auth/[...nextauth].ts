@@ -2,7 +2,7 @@ import NextAuth, { Account } from "next-auth";
 import { DefaultJWT } from "next-auth/jwt";
 import DiscordProvider from "next-auth/providers/discord";
 
-import { getUserDiscordGuilds } from "@/lib/discord";
+import { getUserGuilds } from "@/lib/discord";
 
 export default NextAuth({
     pages: {
@@ -60,7 +60,7 @@ export default NextAuth({
             const guildsExpired = !token.guilds_expires_at || token.guilds_expires_at <= Date.now();
             const guildsNeedsRefresh = session?.tokenNeedsRefresh;
             if (guildsExpired || guildsNeedsRefresh) {
-                const guilds = await getUserDiscordGuilds(token);
+                const guilds = await getUserGuilds(token);
 
                 token = {
                     ...token,
