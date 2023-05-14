@@ -53,7 +53,8 @@ async function makeDiscordRequestInner<T>(rateLimitKey: string, authorizationHea
         rateLimitBucket.remaining -= 1;
     }
 
-    const response = await fetch(`https://discord.com/api/v10${pathname}`, {
+    const apiBase = process.env.DISCORD_PROXY || "https://discord.com";
+    const response = await fetch(`${apiBase}/api/v10${pathname}`, {
         headers: {
             "Authorization": authorizationHeader,
         },

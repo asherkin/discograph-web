@@ -1,6 +1,6 @@
 import serverlessMysql from "serverless-mysql";
 
-const url = new URL(process.env.DATABASE_URL ?? "mysql://root@localhost/discograph");
+const url = new URL(process.env.DATABASE_URL || "mysql://root@localhost/discograph");
 if (url.protocol !== "mysql:") {
     throw new Error("expected DATABASE_URL to use mysql:// scheme");
 }
