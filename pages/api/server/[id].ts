@@ -121,27 +121,65 @@ async function getUserInfo(guildId: string, userIds: string[]): Promise<ClientGu
         departed: null,
     });
 
-    const dbResults = await db.query<QueryRow[]>(
-        "SELECT u.id, u.bot, u.name, u.discriminator, m.nickname, u.avatar, u.animated, m.avatar AS guild_avatar, m.animated AS guild_animated, m.departed FROM users u LEFT JOIN members m ON m.guild = ? AND m.user = u.id WHERE u.id IN (?)",
-        [guildId, userIds]);
+    const loadUsersFromDb = async (userIds: string[]) => {
+        const dbResults = await db.query<QueryRow[]>(
+            "SELECT u.id, u.bot, u.name, u.discriminator, m.nickname, u.avatar, u.animated, m.avatar AS guild_avatar, m.animated AS guild_animated, m.departed FROM users u LEFT JOIN members m ON m.guild = ? AND m.user = u.id WHERE u.id IN (?)",
+            [guildId, userIds]);
 
-    for (const row of dbResults) {
-        userInfo.set(row.id, {
-            bot: row.bot !== 0,
-            name: row.name,
-            discriminator: row.discriminator,
-            avatar: row.avatar && avatarToHash(row.avatar, row.animated !== 0),
-        });
-
-        if (row.departed !== null) {
-            memberInfo.set(row.id, {
-                nickname: row.nickname,
-                avatar: row.guild_avatar && avatarToHash(row.guild_avatar, row.guild_animated !== 0),
-                departed: row.departed !== 0,
+        for (const row of dbResults) {
+            userInfo.set(row.id, {
+                bot: row.bot !== 0,
+                name: row.name,
+                discriminator: row.discriminator,
+                avatar: row.avatar && avatarToHash(row.avatar, row.animated !== 0),
             });
+
+            if (row.departed !== null) {
+                memberInfo.set(row.id, {
+                    nickname: row.nickname,
+                    avatar: row.guild_avatar && avatarToHash(row.guild_avatar, row.guild_animated !== 0),
+                    departed: row.departed !== 0,
+                });
+            }
+        }
+    };
+
+    // First load the users we have from the DB.
+    await loadUsersFromDb(userIds);
+
+    // Then request missing ones via the bot if enabled.
+    if (process.env.DISCOGRAPH_API) {
+        const missingUserIds = userIds.filter(userId => !userInfo.has(userId) || !memberInfo.has(userId));
+
+        if (missingUserIds.length > 0) {
+            const start = Date.now();
+            console.log(`Requesting ${missingUserIds.length} users for ${guildId} via bot`);
+
+            const result = await fetch(`${process.env.DISCOGRAPH_API}/api/members`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "text/plain",
+                },
+                body: [guildId, ...missingUserIds].join("\n") + "\n",
+            });
+
+            console.log(`Bot user request took ${(Date.now() - start) / 1000} seconds`);
+
+            if (result.ok) {
+                // The bot writes directly to the DB, so re-request any we asked it for.
+                await loadUsersFromDb(missingUserIds);
+
+                const stillMissing = missingUserIds.filter(userId => !userInfo.has(userId) || !memberInfo.has(userId));
+                if (stillMissing.length > 0) {
+                    console.log(`Still missing ${stillMissing.length} users: ${stillMissing.join(", ")}`);
+                }
+            } else {
+                console.log(`Failed to load users via bot (${result.status}): ${await result.text()}`);
+            }
         }
     }
 
+    // Then finally attempt to fetch any that are still missing from Discord.
     const loadPromises = userIds.map(async userId => {
         // We may have both, only user info, or neither - only member info isn't possible.
         // If we've got both, we've got everything we need.

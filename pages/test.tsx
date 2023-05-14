@@ -97,6 +97,9 @@ export default function Test() {
             <li className="underline cursor-pointer" onClick={() => setApiRequest("/channels/{channel.id}")}>
                 Get Channel
             </li>
+            <li className="underline cursor-pointer" onClick={() => setApiRequest("/guilds/{guild.id}/members/{user.id}")}>
+                Get Guild Member
+            </li>
         </ul>
     </div>
 }
