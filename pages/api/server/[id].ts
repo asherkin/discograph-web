@@ -1,6 +1,7 @@
 import type { NextApiHandler, NextApiRequest, NextApiResponse } from "next";
 import { getToken, JWT } from "next-auth/jwt";
 
+import { getGuildMember, getUser } from "@/lib/discord";
 import { db, filterListOfGuildIdsWithBot } from "@/lib/db";
 
 export interface ClientRelationshipEvent {
@@ -17,6 +18,7 @@ export interface ClientGuildMember {
     username: string,
     nickname: string,
     avatar: string,
+    departed: boolean,
 }
 
 export type ServerResponse = {
@@ -62,6 +64,214 @@ export async function getTokenAndGuildIdFromRequest<T>(req: NextApiRequest, res:
     };
 }
 
+function avatarToHash(avatar: Buffer, animated: boolean): string {
+    return `${animated ? "a_" : ""}${avatar.reverse().toString("hex").padStart(32, "0")}`;
+}
+
+function hashToAvatar(hash: string): { avatar: Buffer, animated: boolean } {
+    let animated = false;
+    if (hash.startsWith("a_")) {
+        hash = hash.substring(2);
+        animated = true;
+    }
+
+    const avatar = Buffer.from(hash, "hex").reverse();
+
+    return { avatar, animated };
+}
+
+async function getUserInfo(guildId: string, userIds: string[]): Promise<ClientGuildMember[]> {
+    if (userIds.length === 0) {
+        return [];
+    }
+
+    type UserInfo = {
+        bot: boolean,
+        name: string,
+        discriminator: number,
+        avatar: string | null,
+    };
+
+    const userInfo = new Map<string, UserInfo>();
+
+    type MemberInfo = {
+        nickname: string | null,
+        avatar: string | null,
+        departed: boolean,
+    };
+
+    const memberInfo = new Map<string, MemberInfo>();
+
+    type QueryRow = {
+        id: string,
+        bot: number,
+        name: string,
+        discriminator: number,
+        avatar: Buffer | null,
+        animated: number,
+    } & ({
+        nickname: string | null,
+        guild_avatar: Buffer | null,
+        guild_animated: number,
+        departed: number,
+    } | {
+        nickname: null,
+        guild_avatar: null,
+        guild_animated: null,
+        departed: null,
+    });
+
+    const dbResults = await db.query<QueryRow[]>(
+        "SELECT u.id, u.bot, u.name, u.discriminator, m.nickname, u.avatar, u.animated, m.avatar AS guild_avatar, m.animated AS guild_animated, m.departed FROM users u LEFT JOIN members m ON m.guild = ? AND m.user = u.id WHERE u.id IN (?)",
+        [guildId, userIds]);
+
+    for (const row of dbResults) {
+        userInfo.set(row.id, {
+            bot: row.bot !== 0,
+            name: row.name,
+            discriminator: row.discriminator,
+            avatar: row.avatar && avatarToHash(row.avatar, row.animated !== 0),
+        });
+
+        if (row.departed !== null) {
+            memberInfo.set(row.id, {
+                nickname: row.nickname,
+                avatar: row.guild_avatar && avatarToHash(row.guild_avatar, row.guild_animated !== 0),
+                departed: row.departed !== 0,
+            });
+        }
+    }
+
+    const loadPromises = userIds.map(async userId => {
+        // We may have both, only user info, or neither - only member info isn't possible.
+        // If we've got both, we've got everything we need.
+        if (userInfo.has(userId) && memberInfo.has(userId)) {
+            return {
+                userDirty: false,
+                memberDirty: false,
+            };
+        }
+
+        const member = await getGuildMember(guildId, userId);
+
+        // If we got member info back, we'll use that to update the user too.
+        let user = member?.user ?? null;
+
+        // If not, and we didn't have user info already, request that directly.
+        if (!user && !userInfo.has(userId)) {
+            user = await getUser(userId);
+
+            // In practice, if the user doesn't exist, it appears to be because it is a webhook.
+            // Actually delete users still return a valid user object with the details overwritten.
+            // We want to save something to the DB here so that we don't keep making invalid requests.
+            if (!user) {
+                user = {
+                    id: userId,
+                    bot: true,
+                    username: "Unknown Webhook",
+                    discriminator: "0000",
+                    avatar: null,
+                };
+            }
+        }
+
+        if (user) {
+            userInfo.set(userId, {
+                bot: user.bot ?? false,
+                name: user.username,
+                discriminator: parseInt(user.discriminator),
+                avatar: user.avatar,
+            });
+        }
+
+        memberInfo.set(userId, member ? {
+            nickname: member.nick ?? null,
+            avatar: member.avatar ?? null,
+            departed: false,
+        } : {
+            nickname: null,
+            avatar: null,
+            departed: true,
+        });
+
+        return {
+            userDirty: user !== null,
+            memberDirty: true,
+        };
+    });
+
+    const apiResults = await Promise.allSettled(loadPromises);
+    const userInserts = [];
+    const memberInserts = [];
+
+    for (const [ i, result ] of apiResults.entries()) {
+        const userId = userIds[i];
+
+        if (result.status === "rejected") {
+            console.log(`Failed to load info for ${userId} in ${guildId}: ${result.reason}`);
+            continue;
+        }
+
+        if (result.value.userDirty) {
+            const user = userInfo.get(userId)!;
+            const avatar = user.avatar ? hashToAvatar(user.avatar) : null;
+            userInserts.push([
+                userId,
+                user.name,
+                user.discriminator,
+                user.bot,
+                avatar && avatar.avatar,
+                avatar ? avatar.animated : false,
+            ]);
+        }
+
+        if (result.value.memberDirty) {
+            const member = memberInfo.get(userId)!;
+            const avatar = member.avatar ? hashToAvatar(member.avatar) : null;
+            memberInserts.push([
+                guildId,
+                userId,
+                member.nickname,
+                avatar && avatar.avatar,
+                avatar ? avatar.animated : false,
+                member.departed,
+            ]);
+        }
+    }
+
+    if (userInserts.length > 0) {
+        await db.query(
+            "INSERT INTO users (id, name, discriminator, bot, avatar, animated) VALUES ? ON DUPLICATE KEY UPDATE name = VALUE(name), discriminator = VALUE(discriminator), bot = VALUE(bot), avatar = VALUE(avatar), animated = VALUE(animated)",
+            [userInserts]);
+    }
+
+    if (memberInserts.length > 0) {
+        await db.query(
+            "INSERT INTO members (guild, user, nickname, avatar, animated, departed) VALUES ? ON DUPLICATE KEY UPDATE nickname = VALUE(nickname), avatar = VALUE(avatar), animated = VALUE(animated), departed = VALUE(departed)",
+            [memberInserts]);
+    }
+
+    return userIds.map(userId => {
+        const user = userInfo.get(userId)!;
+        const member = memberInfo.get(userId)!;
+
+        const avatar = member.avatar !== null ?
+            `https://cdn.discordapp.com/guilds/${guildId}/users/${userId}/avatars/${member.avatar}.png` :
+            (user.avatar !== null ?
+                `https://cdn.discordapp.com/avatars/${userId}/${user.avatar}.png` :
+                `https://cdn.discordapp.com/embed/avatars/${user.discriminator % 5}.png`);
+
+        return {
+            id: userId,
+            bot: user.bot,
+            username: `${user.name}#${user.discriminator.toString(10).padStart(4, "0")}`,
+            nickname: member.nickname ?? user.name,
+            avatar,
+            departed: member.departed,
+        };
+    });
+}
+
 // TODO: Rate limit this and the servers API per-user.
 const server: NextApiHandler<ServerResponse | ErrorResponse> = async (req, res) => {
     const { token, guildId } = await getTokenAndGuildIdFromRequest(req, res);
@@ -100,45 +310,7 @@ const server: NextApiHandler<ServerResponse | ErrorResponse> = async (req, res) 
         userIds.add(event.target);
     }
 
-    const users = [];
-    if (userIds.size > 0) {
-        type QueryRow = {
-            id: string,
-            bot: number,
-            name: string,
-            discriminator: number,
-            nickname: string | null,
-            avatar: Buffer | null,
-            animated: number,
-            guild_avatar: Buffer | null,
-            guild_animated: number,
-        };
-
-        const results = await db.query<QueryRow[]>(
-            "SELECT u.id, u.bot, u.name, u.discriminator, m.nickname, u.avatar, u.animated, m.avatar AS guild_avatar, m.animated AS guild_animated FROM users u LEFT JOIN members m ON m.guild = ? AND m.user = u.id AND m.departed = 0 WHERE u.id IN (?)",
-            [guildId, Array.from(userIds.keys())]);
-
-        const avatarToHash = (avatar: Buffer, animated: number) =>
-            `${animated ? 'a_' : ''}${avatar.reverse().toString('hex').padStart(32, '0')}`;
-
-        for (const row of results) {
-            const avatar = row.guild_avatar !== null ?
-                `https://cdn.discordapp.com/guilds/${guildId}/users/${row.id}/avatars/${avatarToHash(row.guild_avatar, row.guild_animated)}.png` :
-                (row.avatar !== null ?
-                    `https://cdn.discordapp.com/avatars/${row.id}/${avatarToHash(row.avatar, row.animated)}.png` :
-                    `https://cdn.discordapp.com/embed/avatars/${row.discriminator % 5}.png`);
-
-            users.push({
-                id: row.id,
-                bot: row.bot !== 0,
-                username: `${row.name}#${row.discriminator.toString().padStart(4, '0')}`,
-                nickname: row.nickname ?? row.name,
-                avatar,
-            });
-        }
-    }
-
-    // TODO: Load missing users from Discord and include them in the response.
+    const users = await getUserInfo(guildId, Array.from(userIds));
 
     res.status(200).json({
         limit,

@@ -12,6 +12,7 @@ export const db = serverlessMysql({
         database: url.pathname ? url.pathname.substring(1) : undefined,
         host: url.hostname || undefined,
         port: url.port ? parseInt(url.port) : undefined,
+        charset: "utf8mb4",
         typeCast: true,
         supportBigNumbers: true,
         bigNumberStrings: true,

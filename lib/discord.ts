@@ -1,5 +1,6 @@
 import { JWT } from "next-auth/jwt";
 
+const headOfLineRequests = new Map<string, Promise<any>>();
 const rateLimitBucketKeys = new Map<string, string>();
 const rateLimitBuckets = new Map<string, { resetAt: number, remaining: number }>();
 
@@ -10,22 +11,46 @@ async function makeDiscordRequestInner<T>(rateLimitKey: string, authorizationHea
         rateLimitBuckets.get(rateLimitBucketKey) :
         undefined;
 
+    // If we don't have a known bucket, only allow a single in-flight request.
+    if (rateLimitBucket === undefined) {
+        // TODO: This is fairly hacky and would be much better served by the suggestion below.
+        const existingRequest = headOfLineRequests.get(rateLimitKey);
+
+        if (existingRequest) {
+            console.log(`[${pathname}] No known rate limit bucket and a request is already in-flight, waiting on it.`)
+
+            try {
+                await existingRequest;
+            } catch (e) {
+                // Do nothing.
+            }
+
+            // We re-make the request to re-get the bucket.
+            return makeDiscordRequestInner(rateLimitKey, authorizationHeader, pathname, attempt);
+        }
+    }
+
+    // TODO: Consider re-implementing the waits in here as a Promise-based token bucket, which would
+    //       appear to be a closer match to the server-side implementation.
     // console.log(`[${pathname}] Known rate limit bucket: ${JSON.stringify(rateLimitBucket)}`);
     if (rateLimitBucket !== undefined) {
-        // If we have an existing bucket, count this request against it.
-        rateLimitBucket.remaining -= 1;
-
         // If we're out of requests in this period, wait for it to be reset.
         // There is still something a little off here as we're getting occasional 429s with ~0.3s retry times,
         // but it is completely obviated as long as we have our 5s debounce, so not worrying about it for now.
         const delayUntil = rateLimitBucket.resetAt - Date.now();
         if (delayUntil > 0 && rateLimitBucket.remaining <= 0) {
-            // console.log(`[${pathname}] Rate limit would be exceeded, waiting for ${delayUntil / 1000} seconds`)
+            console.log(`[${pathname}] Rate limit would be exceeded, retrying in ${delayUntil / 1000} seconds`)
 
             await new Promise(resolve => {
                 setTimeout(resolve, delayUntil);
             });
+
+            // We re-make the request to re-get the bucket.
+            return makeDiscordRequestInner(rateLimitKey, authorizationHeader, pathname, attempt);
         }
+
+        // Count this request against the bucket.
+        rateLimitBucket.remaining -= 1;
     }
 
     const response = await fetch(`https://discord.com/api/v10${pathname}`, {
@@ -45,15 +70,20 @@ async function makeDiscordRequestInner<T>(rateLimitKey: string, authorizationHea
     const newLimitRemaining = response.headers.get("x-ratelimit-remaining");
     const newLimitResetAt = response.headers.get("x-ratelimit-reset");
     if (rateLimitBucketKey !== undefined && newLimitRemaining !== null && newLimitResetAt !== null) {
-        rateLimitBuckets.set(rateLimitBucketKey, {
-            remaining: parseInt(newLimitRemaining),
-            resetAt: parseFloat(newLimitResetAt) * 1000,
-        })
+        const remaining = parseInt(newLimitRemaining);
+        // Add an extra 500ms to the reset time to account for jitter.
+        const resetAt = (parseFloat(newLimitResetAt) * 1000) + 500;
+
+        // If the bucket has the same reset time as the current bucket, only update it if the remaining requests are lower.
+        // This avoids a problem with multiple responses racing in-flight.
+        if (rateLimitBucket === undefined || resetAt !== rateLimitBucket.resetAt || remaining < rateLimitBucket.remaining) {
+            rateLimitBuckets.set(rateLimitBucketKey, { remaining, resetAt });
+        }
     }
 
     // for (const [name, value] of response.headers) {
     //     if (name.startsWith("x-ratelimit-")) {
-    //         console.log(name, value);
+    //         console.log(pathname, name, value);
     //     }
     // }
 
@@ -66,7 +96,7 @@ async function makeDiscordRequestInner<T>(rateLimitKey: string, authorizationHea
         console.log(`[${pathname}] Rate limit hit, retrying in ${body.retry_after} seconds`);
 
         await new Promise(resolve => {
-            setTimeout(resolve, body.retry_after * 1000);
+            setTimeout(resolve, (body.retry_after * 1000) + 500);
         });
 
         // Not a server-side error, so maintain the attempt count.
@@ -88,10 +118,11 @@ async function makeDiscordRequestInner<T>(rateLimitKey: string, authorizationHea
     setTimeout(() => {
         // Use this time to clean up any expired rate limit buckets.
         // We could do this less often than every request.
-        const now = Date.now();
+        // Keep expired buckets around for 30 minutes.
+        const expireFrom = Date.now() - (1000 * 60 * 30);
         const expiredBucketKeys = new Set<string>();
         for (const [bucketKey, bucket] of rateLimitBuckets) {
-            if (bucket.resetAt < now) {
+            if (bucket.resetAt < expireFrom) {
                 expiredBucketKeys.add(bucketKey);
             }
         }
@@ -124,15 +155,20 @@ function makeDiscordRequest<T>(authorizationHeader: string, pathname: string, ra
         return pendingRequest;
     }
 
-    // console.log(`New request for ${pathname}`);
+    console.log(`New request for ${pathname}`);
     const rateLimitKey = `${authorizationHeader} ${rateLimitPath}`;
     const newRequest = makeDiscordRequestInner<T>(rateLimitKey, authorizationHeader, pathname, 0);
 
     pendingRequests.set(requestKey, newRequest);
 
+    // This is alright to set unconditionally as we're selective about accessing it instead.
+    headOfLineRequests.set(rateLimitKey, newRequest);
+
     newRequest
         .then(() => true, () => false)
         .then(async (succeeded: boolean) => {
+            headOfLineRequests.delete(rateLimitKey);
+
             // We add a short delay to successful requests to debounce repeated calls - we get a lot of requests on login.
             if (succeeded) {
                 await new Promise(resolve => {
@@ -175,9 +211,10 @@ export function makeDiscordRequestAsApp<T>(pathname: string, rateLimitPath: stri
 
 export interface UserInfo {
     id: string,
+    bot?: boolean,
     username: string,
     discriminator: string,
-    avatar: string,
+    avatar: string | null,
 }
 
 export interface ApplicationInfo {
@@ -192,4 +229,34 @@ export interface ApplicationInfo {
 
 export async function getApplicationInfo(): Promise<ApplicationInfo> {
     return makeDiscordRequestAsApp("/oauth2/applications/@me", "/oauth2/applications/@me");
+}
+
+export async function getUser(user: string): Promise<UserInfo | null> {
+    try {
+        return await makeDiscordRequestAsApp(`/users/${user}`, `/users/_`);
+    } catch (error: any) {
+        if (error.discordStatusCode !== 404) {
+            throw error;
+        }
+
+        return null;
+    }
+}
+
+export interface MemberInfo {
+    user: UserInfo,
+    nick?: string | null,
+    avatar?: string | null,
+}
+
+export async function getGuildMember(guild: string, user: string): Promise<MemberInfo | null> {
+    try {
+        return await makeDiscordRequestAsApp(`/guilds/${guild}/members/${user}`, `/guilds/${guild}/members/_`);
+    } catch (error: any) {
+        if (error.discordStatusCode !== 404) {
+            throw error;
+        }
+
+        return null;
+    }
 }

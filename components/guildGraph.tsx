@@ -24,6 +24,7 @@ interface Node {
     siblings: Set<string>,
     image_url: string | undefined,
     label: string | undefined,
+    departed: boolean,
 }
 
 interface Link {
@@ -77,7 +78,7 @@ function getNodeThreeObject(cache: Map<string, Mesh<SphereGeometry, ShaderMateri
         cache.set(key, object);
     }
 
-    const transparent = selectedNode !== null && selectedNode !== node.id && !node.siblings.has(selectedNode);
+    const transparent = node.departed || (selectedNode !== null && selectedNode !== node.id && !node.siblings.has(selectedNode));
 
     const material = object.material;
     material.transparent = transparent;
@@ -307,6 +308,7 @@ function computeGraphData(config: GraphConfig, events: ServerResponse[], setSize
             siblings: siblings.get(id) ?? new Set(),
             image_url: userInfo.get(id)?.avatar,
             label: userInfo.get(id)?.nickname ?? id,
+            departed: userInfo.get(id)?.departed ?? true,
         }))
         .filter(({ weight, siblings }) => weight >= nodeThreshold && siblings.size > 0);
 
@@ -465,6 +467,10 @@ export default function GuildGraph({ guild, graphConfig }: GuildGraphProps) {
         if (typeof link.source === "object" && typeof link.target === "object") {
             if (link.source.id === selectedNode || link.target.id === selectedNode) {
                 return isDarkMode ? "#FFFFFF" : "rgb(79 70 229)";
+            }
+
+            if (link.source.departed || link.target.departed) {
+                return isDarkMode ? "#FFFFFF33" : "#66666633";
             }
         }
 

@@ -49,9 +49,6 @@ export default function Server() {
                 <Callout intent="warning" className="mb-4">
                     This page is very much a work in progress. More coming soon.
                 </Callout>
-                <Callout intent="warning" className="mb-4">
-                    Some users will be missing name and avatar information, this is expected.
-                </Callout>
                 <RangeInput label="Decay Amount" min={0.0001} max={0.01} step={0.00001} value={graphConfig.decayAmount} onChange={ev => {
                     const value = parseFloat(ev.currentTarget.value);
                     setGraphConfig(config => ({ ...config, decayAmount: value }));
