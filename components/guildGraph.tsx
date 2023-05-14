@@ -240,8 +240,16 @@ function computeGraphData(config: GraphConfig, events: ServerResponse[], previou
 
             const weight = eventWeight * decay;
 
-            const isBot = userInfo.get(event.source)?.bot || userInfo.get(event.target)?.bot;
-            if (!isBot || !config.excludeBots) {
+            const sourceUserInfo = userInfo.get(event.source);
+            const targetUserInfo = userInfo.get(event.target);
+
+            const isBot = sourceUserInfo?.bot || targetUserInfo?.bot || false;
+            const excludeBot = isBot && (config.excludeBots ?? DEFAULT_GRAPH_CONFIG.excludeBots);
+
+            const departed = sourceUserInfo?.departed || targetUserInfo?.departed || false;
+            const excludeDeparted = departed && (config.excludeDeparted ?? DEFAULT_GRAPH_CONFIG.excludeDeparted);
+
+            if (!excludeBot && !excludeDeparted) {
                 nodes.set(event.source, (nodes.get(event.source) ?? 0) + weight);
                 nodes.set(event.target, (nodes.get(event.target) ?? 0) + weight);
 
@@ -337,7 +345,7 @@ function computeGraphData(config: GraphConfig, events: ServerResponse[], previou
                 siblings: nodeSiblings,
                 image_url: nodeUserInfo?.avatar,
                 label: nodeUserInfo?.nickname ?? id,
-                departed: nodeUserInfo?.departed ?? true,
+                departed: nodeUserInfo?.departed || false,
 
                 x,
                 y,

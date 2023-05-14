@@ -65,7 +65,7 @@ interface InputProps extends Omit<ComponentPropsWithoutRef<"input">, "type" | "c
 }
 
 export function TextInput({ label, help, ...props }: InputProps) {
-    return <label className="block mb-3">
+    return <label className="block">
         {label}
         <input type="text" className="block w-full mt-1 px-2 py-1 border rounded-lg" {...props} />
         {help && <div className="ms-0.5 mt-1 text-xs opacity-60">
@@ -75,7 +75,7 @@ export function TextInput({ label, help, ...props }: InputProps) {
 }
 
 export function RangeInput({ label, help, ...props }: InputProps) {
-    return <label className="block mb-3">
+    return <label className="block">
         {label}
         <input type="range" className="block w-full mt-1" {...props} />
         {help && <div className="ms-0.5 text-xs opacity-60">
@@ -85,7 +85,7 @@ export function RangeInput({ label, help, ...props }: InputProps) {
 }
 
 export function CheckboxInput({ label, help, ...props }: InputProps) {
-    return <label className="block mb-3 ps-0.5">
+    return <label className="block ps-0.5">
         <input type="checkbox" className="float-left h-6 me-2" {...props} />
         {label}
         {help && <div className="text-xs opacity-60">

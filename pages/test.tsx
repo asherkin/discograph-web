@@ -73,7 +73,7 @@ export default function Test() {
         }
     };
 
-    return <div className="flex flex-col w-full max-w-xl mx-auto">
+    return <div className="flex flex-col w-full max-w-xl mx-auto space-y-3">
         <TextInput label="API Request" value={apiRequest} onChange={onApiRequestChange} />
         {placeholders.map(placeholder => <TextInput
             key={placeholder}

@@ -91,27 +91,35 @@ export default function Server() {
                 <Button onClick={adjustTimestamp.bind(null, (1000 * 60 * 60 * 24))} size="xs" className="mx-1"><ChevronRightIcon className="w-5" /></Button>
                 <Button onClick={adjustTimestamp.bind(null, (1000 * 60 * 60 * 24 * 30))} size="xs"><ChevronDoubleRightIcon className="w-5" /></Button>
             </div>
-            <div className="h-full overflow-y-auto border-y pt-4 flex flex-col">
-                <RangeInput label="Decay Amount" min={0.0001} max={0.01} step={0.00001} value={graphConfig.decayAmount} onChange={ev => {
-                    const value = parseFloat(ev.currentTarget.value);
-                    setGraphConfig(config => ({ ...config, decayAmount: value }));
-                }} help="Increase to prefer newer events." />
-                <RangeInput label="Decay Threshold" min={0.01} max={1} step={0.01} value={graphConfig.decayThreshold} onChange={ev => {
-                    const value = parseFloat(ev.currentTarget.value);
-                    setGraphConfig(config => ({ ...config, decayThreshold: value }));
-                }} help="Increase to only include newer events." />
-                <RangeInput label="Link Threshold" min={0} max={20} step={0.01} value={graphConfig.linkThreshold} onChange={ev => {
-                    const value = parseFloat(ev.currentTarget.value);
-                    setGraphConfig(config => ({ ...config, linkThreshold: value }));
-                }} help="Increase to remove weaker links." />
-                <RangeInput label="Node Threshold" min={0} max={40} step={0.01} value={graphConfig.nodeThreshold} onChange={ev => {
-                    const value = parseFloat(ev.currentTarget.value);
-                    setGraphConfig(config => ({ ...config, nodeThreshold: value }));
-                }} help="Increase to remove weakly-connected users." />
-                <CheckboxInput label="Exclude Bots" checked={graphConfig.excludeBots} onChange={ev => {
-                    const checked = ev.currentTarget.checked;
-                    setGraphConfig(config => ({ ...config, excludeBots: checked }))
-                }} />
+            <div className="h-full overflow-y-auto border-y flex flex-col">
+                <div className="space-y-3 my-3">
+                    <RangeInput label="Decay Amount" min={0.0001} max={0.01} step={0.00001} value={graphConfig.decayAmount} onChange={ev => {
+                        const value = parseFloat(ev.currentTarget.value);
+                        setGraphConfig(config => ({ ...config, decayAmount: value }));
+                    }} help="Increase to prefer newer events." />
+                    <RangeInput label="Decay Threshold" min={0.01} max={1} step={0.01} value={graphConfig.decayThreshold} onChange={ev => {
+                        const value = parseFloat(ev.currentTarget.value);
+                        setGraphConfig(config => ({ ...config, decayThreshold: value }));
+                    }} help="Increase to only include newer events." />
+                    <RangeInput label="Link Threshold" min={0} max={20} step={0.01} value={graphConfig.linkThreshold} onChange={ev => {
+                        const value = parseFloat(ev.currentTarget.value);
+                        setGraphConfig(config => ({ ...config, linkThreshold: value }));
+                    }} help="Increase to remove weaker links." />
+                    <RangeInput label="Node Threshold" min={0} max={40} step={0.01} value={graphConfig.nodeThreshold} onChange={ev => {
+                        const value = parseFloat(ev.currentTarget.value);
+                        setGraphConfig(config => ({ ...config, nodeThreshold: value }));
+                    }} help="Increase to remove weakly-connected users." />
+                    <div className="space-y-1">
+                        <CheckboxInput label="Include Bots" checked={!graphConfig.excludeBots} onChange={ev => {
+                            const checked = ev.currentTarget.checked;
+                            setGraphConfig(config => ({ ...config, excludeBots: !checked }))
+                        }} />
+                        <CheckboxInput label="Only Current Members" checked={graphConfig.excludeDeparted} onChange={ev => {
+                            const checked = ev.currentTarget.checked;
+                            setGraphConfig(config => ({ ...config, excludeDeparted: checked }))
+                        }} />
+                    </div>
+                </div>
                 <div className="flex-1" />
                 <GraphStatsDisplay stats={graphStats} />
             </div>

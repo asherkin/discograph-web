@@ -2,6 +2,7 @@
 
 export interface GraphConfig {
     excludeBots?: boolean,
+    excludeDeparted?: boolean,
     decayAmount?: number,
     decayThreshold?: number,
     linkThreshold?: number,
@@ -11,6 +12,7 @@ export interface GraphConfig {
 
 export const DEFAULT_GRAPH_CONFIG: Required<GraphConfig> = {
     excludeBots: true,
+    excludeDeparted: false,
     decayAmount: 0.001,
     decayThreshold: 0.6,
     linkThreshold: 2.0,
