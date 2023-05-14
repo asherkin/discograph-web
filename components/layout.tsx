@@ -25,7 +25,7 @@ function UserInfo({ signInToDashboard, signOutToIndex }: UserInfoProps) {
         return <Button onClick={() => signIn(undefined, { callbackUrl: signInToDashboard ? "/servers" : undefined })}>Login with Discord</Button>;
     }
 
-    return <div className="flex items-center">
+    return <div className={`flex items-center ${signInToDashboard ? "" : "max-sm:hidden"}`}>
         <span className={signInToDashboard ? "" : "max-md:hidden"}>
             {/*{session?.user?.image && <Image src={session.user.image} width={40} height={40} alt=""*/}
             {/*                                className="inline border border-slate-200 dark:border-slate-600 mr-3 rounded-lg" />}*/}
@@ -41,7 +41,7 @@ interface LayoutProps {
 }
 
 export default function Layout({ showHeaderLogo, signOutToIndex, children }: PropsWithChildren<LayoutProps>) {
-    return <div className={`p-9 min-h-screen flex flex-col justify-stretch text-black bg-slate-100 dark:text-white dark:bg-slate-800 ${inter.className}`}>
+    return <div className={`p-9 min-h-screen flex flex-col justify-stretch ${inter.className}`}>
         <header className="flex justify-between mb-9 h-11">
             {showHeaderLogo ? <Link href="/" className="text-4xl font-semibold flex items-center h-11">
                 <Image width={40} height={40} className="rounded-lg mr-3" src={logoImage} alt="" priority />

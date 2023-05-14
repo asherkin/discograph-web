@@ -32,9 +32,9 @@ export default function App({ Component, pageProps: { session, ...pageProps }, r
         <link rel="icon" type="image/png" sizes="256x256" href="/favicon-256.png" />
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <link rel="apple-touch-icon" type="image/png" sizes="256x256" href="/logo-256.png" />
-        <meta key="description" name="description" content="A Discord Bot that infers relationships between users and draws pretty graphs." />
+        <meta key="description" name="description" content="A Discord Bot that infers conversations between users and draws pretty graphs." />
         <meta property="og:title" content="DiscoGraph" />
-        <meta property="og:description" content="A Discord Bot that infers relationships between users and draws pretty graphs." />
+        <meta property="og:description" content="A Discord Bot that infers conversations between users and draws pretty graphs." />
         <meta property="og:type" content="website" />
         <meta property="og:image" content={(new URL('/logo-256.png', baseUrl)).href} />
         <meta property="og:image:width" content="256" />
