@@ -15,6 +15,7 @@ import { ClientGuildMember, ServerResponse } from "@/pages/api/server/[id]";
 
 interface GuildGraphProps {
     guild: string,
+    timestamp?: number,
     graphConfig?: GraphConfig,
     setGraphStats?: (stats: GraphStats) => void,
 }
@@ -33,7 +34,7 @@ interface Link {
     departed: boolean,
 }
 
-function useGuildEvents(id: string) {
+function useGuildEvents(id: string, timestamp: number | undefined) {
     const getKey: SWRInfiniteKeyLoader<ServerResponse> = useCallback((pageIndex, previousPageData) => {
         if (previousPageData && previousPageData.events.length < previousPageData.limit) {
             return null;
@@ -43,23 +44,17 @@ function useGuildEvents(id: string) {
             limit: "1000",
         });
 
-        const before = previousPageData?.events.at(-1)?.timestamp;
+        const before = previousPageData?.events.at(-1)?.timestamp ?? timestamp?.toString();
         if (before !== undefined) {
             params.set("before", before);
         }
 
         return `/api/server/${id}?${params.toString()}`;
-    }, [id]);
+    }, [id, timestamp]);
 
     return useSWRInfinite<ServerResponse>(getKey, {
-        // If this is true, we revalidate the first page every time we load a page,
-        // which doesn't make sense with cursor-based paging.
-        revalidateFirstPage: false,
-        revalidateOnFocus: false,
-        revalidateOnReconnect: false,
-        // TODO: This isn't working without revalidateFirstPage, investigate.
-        revalidateOnMount: true,
-        // Use refreshInterval for periodic updates once we're stable.
+        revalidateFirstPage: timestamp !== undefined,
+        // keepPreviousData: true,
     });
 }
 
@@ -192,7 +187,7 @@ interface ComputedGraphData extends GraphData<Node, Link> {
 }
 
 // TODO: This needs a rewrite and tidy up now that we know what we're doing with it.
-function computeGraphData(config: GraphConfig, events: ServerResponse[]): ComputedGraphData {
+function computeGraphData(config: GraphConfig, events: ServerResponse[], previousNodes: Map<string, NodeObject<Node>>): ComputedGraphData {
     const WEIGHT_KEYS = [
         undefined,
         "reaction",
@@ -300,14 +295,61 @@ function computeGraphData(config: GraphConfig, events: ServerResponse[]): Comput
     });
 
     const nodesArray = Array.from(nodes.entries())
-        .map(([id, weight]) => ({
-            id,
-            weight,
-            siblings: siblings.get(id) ?? new Set(),
-            image_url: userInfo.get(id)?.avatar,
-            label: userInfo.get(id)?.nickname ?? id,
-            departed: userInfo.get(id)?.departed ?? true,
-        }))
+        .map(([id, weight]) => {
+            const nodeSiblings = siblings.get(id) ?? new Set();
+            const nodeUserInfo = userInfo.get(id);
+            const previousNode = previousNodes.get(id);
+
+            let x = previousNode?.x;
+            let y = previousNode?.y;
+            let z = previousNode?.z;
+
+            // If we have no position, but our siblings have positions, center us in the middle of them.
+            // TODO: This isn't working too well, it causes a sort of explosion outwards - probably because they're on top of each other.
+            // if (!x && !y && !z) {
+            //     let cx = 0, cy = 0, cz = 0, count = 0;
+            //
+            //     for (const siblingId of nodeSiblings) {
+            //         const previousSiblingNode = previousNodes.get(siblingId);
+            //         const sx = previousSiblingNode?.x;
+            //         const sy = previousSiblingNode?.y;
+            //         const sz = previousSiblingNode?.z;
+            //         if (!sx || !sy || !sz) {
+            //             continue;
+            //         }
+            //
+            //         cx += sx;
+            //         cy += sy;
+            //         cz += sz;
+            //         count += 1;
+            //     }
+            //
+            //     if (count > 0) {
+            //         x = cx / count;
+            //         y = cy / count;
+            //         z = cz / count;
+            //     }
+            // }
+
+            return {
+                id,
+                weight,
+                siblings: nodeSiblings,
+                image_url: nodeUserInfo?.avatar,
+                label: nodeUserInfo?.nickname ?? id,
+                departed: nodeUserInfo?.departed ?? true,
+
+                x,
+                y,
+                z,
+                vx: previousNode?.vx,
+                vy: previousNode?.vy,
+                vz: previousNode?.vz,
+                fx: previousNode?.fx,
+                fy: previousNode?.fy,
+                fz: previousNode?.fz,
+            };
+        })
         .filter(({ weight, siblings }) => weight >= nodeThreshold && siblings.size > 0);
 
     // console.log(nodesArray, linksArray);
@@ -390,15 +432,35 @@ function MyForceGraph3D({ graphRef, ...props }: ForceGraphProps<Node, Link> & { 
     return <ForceGraph3D ref={innerGraphRef} {...props} />;
 }
 
-export default function GuildGraph({ guild, graphConfig, setGraphStats }: GuildGraphProps) {
-    const { data: events, error: eventsError, setSize, isLoading } = useGuildEvents(guild);
+export default function GuildGraph({ guild, timestamp, graphConfig, setGraphStats }: GuildGraphProps) {
+    const { data: events, error: eventsError, setSize, isLoading } = useGuildEvents(guild, timestamp);
     // console.log(id, events, eventsError);
 
-    const [ graphData, setGraphData ] = useState<ComputedGraphData | undefined>(undefined);
+    const [ [ graphData, lastStableGraphData ], setGraphData ] = useState<[ComputedGraphData | undefined, ComputedGraphData | undefined]>([undefined, undefined]);
     useEffect(() => {
-        if (events) {
-            setGraphData(computeGraphData(graphConfig ?? {}, events));
+        if (!events) {
+            return;
         }
+
+        setGraphData(([ previousGraphData, lastStableGraphData ]) => {
+            const previousNodes = new Map<string, NodeObject<Node>>();
+
+            if (lastStableGraphData) {
+                for (const node of lastStableGraphData.nodes) {
+                    previousNodes.set(node.id, node);
+                }
+            }
+
+            // if (previousGraphData) {
+            //     for (const node of previousGraphData.nodes) {
+            //         previousNodes.set(node.id, node);
+            //     }
+            // }
+
+            const newGraphData = computeGraphData(graphConfig ?? {}, events, previousNodes);
+
+            return [newGraphData, newGraphData.needsMoreData ? lastStableGraphData : newGraphData];
+        });
     }, [graphConfig, events]);
 
     useEffect(() => {
@@ -406,12 +468,16 @@ export default function GuildGraph({ guild, graphConfig, setGraphStats }: GuildG
             if (graphData.needsMoreData) {
                 setSize(graphData.pagesUsed + 1);
             }
+        }
 
-            if (setGraphStats) {
+        if (setGraphStats) {
+            if (lastStableGraphData) {
+                setGraphStats(lastStableGraphData.stats);
+            } else if (graphData) {
                 setGraphStats(graphData.stats);
             }
         }
-    }, [graphData, setSize, setGraphStats]);
+    }, [graphData, lastStableGraphData, setSize, setGraphStats]);
 
     const graphRef = useRef<ForceGraphMethods<Node, Link> | undefined>();
 
@@ -490,6 +556,21 @@ export default function GuildGraph({ guild, graphConfig, setGraphStats }: GuildG
     const threeObjectCache = useRef(new Map<string, Mesh<SphereGeometry, ShaderMaterial>>());
     const nodeThreeObject = useMemo(() => getNodeThreeObject.bind(null, threeObjectCache.current, selectedNode), [selectedNode]);
 
+    // This absolute hack stops the engine from getting too hot or too cold.
+    // Must be a non-arrow function in order to access the internal `this` of the force graph component.
+    type ForceGraphInternals = { d3ForceLayout: { alpha: (_?: number) => number, alphaTarget: (_?: number) => number } };
+    const onEngineTick = useCallback(function (this: ForceGraphInternals) {
+        // If we limit the minimum we get a nice sort of floatiness.
+        // Never cooling does mean increased CPU usage though.
+        this.d3ForceLayout.alphaTarget(0.05);
+
+        // At least 0.3 seems to be required as the initial alpha to get any reasonable convergence.
+        const alpha = this.d3ForceLayout.alpha();
+        if (alpha > 0.3) {
+            this.d3ForceLayout.alpha(0.3);
+        }
+    }, []);
+
     if (eventsError) {
         return <div className="flex-grow flex items-center justify-center p-6">
             <Callout intent="danger">
@@ -503,7 +584,7 @@ export default function GuildGraph({ guild, graphConfig, setGraphStats }: GuildG
         <path d="M12 2C6.47715 2 2 6.47715 2 12C2 14.7255 3.09032 17.1962 4.85857 19" />
     </svg>;
 
-    if (!graphData) {
+    if (!graphData || !lastStableGraphData) {
         return <div className="flex-grow flex items-center justify-center p-6">
             {loadingSpinner("h-20 w-20 flex-1")}
         </div>;
@@ -528,7 +609,7 @@ export default function GuildGraph({ guild, graphConfig, setGraphStats }: GuildG
                 height={containerHeight}
                 showNavInfo={false}
                 rendererConfig={{ antialias: true, alpha: true, logarithmicDepthBuffer: true }}
-                graphData={graphData}
+                graphData={lastStableGraphData}
                 nodeLabel={node => `<span class="p-1 rounded bg-opacity-60 bg-indigo-50 text-indigo-950 dark:bg-slate-900 dark:text-slate-100">${node.label}</span>`}
                 linkWidth={link => Math.sqrt(link.weight)}
                 backgroundColor="#00000000"
@@ -537,7 +618,10 @@ export default function GuildGraph({ guild, graphConfig, setGraphStats }: GuildG
                 onNodeClick={handleNodeClick}
                 onBackgroundClick={handleBackgroundClick}
                 nodeThreeObject={nodeThreeObject}
-                warmupTicks={20}
+                warmupTicks={0}
+                cooldownTime={Infinity}
+                cooldownTicks={Infinity}
+                onEngineTick={onEngineTick}
             />
         </div>
         {!stable && <div className="absolute pointer-events-none top-2 right-2 opacity-60">

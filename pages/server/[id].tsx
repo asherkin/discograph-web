@@ -1,8 +1,14 @@
+import {
+    ChevronDoubleLeftIcon,
+    ChevronDoubleRightIcon,
+    ChevronLeftIcon,
+    ChevronRightIcon,
+} from "@heroicons/react/24/outline";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/router";
-import { Fragment, useState } from "react";
+import { Fragment, useCallback, useState } from "react";
 
-import { Callout, CheckboxInput, RangeInput } from "@/components/core";
+import { Button, Callout, CheckboxInput, RangeInput } from "@/components/core";
 import { DEFAULT_GRAPH_CONFIG, GraphConfig, GraphStats } from "@/lib/guildGraphConfig";
 import { useServersAndHandleTokenRefresh } from "@/pages/servers";
 
@@ -58,8 +64,13 @@ export default function Server() {
     // We mostly make this request to refresh the user token on a direct link to this page.
     const { data: guild, error: guildError } = useGuildInfo(id);
 
+    const [timestamp, setTimestamp] = useState(Date.now());
     const [graphConfig, setGraphConfig] = useState<GraphConfig>(DEFAULT_GRAPH_CONFIG);
     const [graphStats, setGraphStats] = useState<GraphStats | null>(null);
+
+    const adjustTimestamp = useCallback((offset: number) => {
+        setTimestamp(timestamp => Math.min(timestamp + offset, Date.now()));
+    }, []);
 
     const guildErrorCallout = (guildError && !guild) && <div className="flex-grow flex items-center justify-center p-6">
         <Callout intent="danger">
@@ -69,10 +80,17 @@ export default function Server() {
 
     return <div className="flex flex-col lg:flex-row flex-grow justify-end">
         <div className="flex-grow border rounded-lg flex z-10 lg:-mb-12 max-lg:min-h-[calc(100vh-9.5rem)]">
-            {guild ? <GuildGraph key={guild.id} guild={guild.id} graphConfig={graphConfig} setGraphStats={setGraphStats} /> : guildErrorCallout}
+            {guild ? <GuildGraph key={guild.id} guild={guild.id} timestamp={timestamp} graphConfig={graphConfig} setGraphStats={setGraphStats} /> : guildErrorCallout}
         </div>
         <div className="max-lg:mt-6 lg:w-80 lg:ms-6 lg:max-h-[calc(100vh-17.75rem)]">
-            <h2 className="lg:text-right text-2xl">{guild?.name ?? <>&nbsp;</>}</h2>
+            <h2 className="text-center text-2xl">{guild?.name ?? <>&nbsp;</>}</h2>
+            <div className="pt-2 pb-3 flex">
+                <Button onClick={adjustTimestamp.bind(null, -(1000 * 60 * 60 * 24 * 30))} size="xs"><ChevronDoubleLeftIcon className="w-5" /></Button>
+                <Button onClick={adjustTimestamp.bind(null, -(1000 * 60 * 60 * 24))} size="xs" className="mx-1"><ChevronLeftIcon className="w-5" /></Button>
+                <span className="p-1 flex-1 text-center" suppressHydrationWarning={true}>{formatTimestamp(timestamp)}</span>
+                <Button onClick={adjustTimestamp.bind(null, (1000 * 60 * 60 * 24))} size="xs" className="mx-1"><ChevronRightIcon className="w-5" /></Button>
+                <Button onClick={adjustTimestamp.bind(null, (1000 * 60 * 60 * 24 * 30))} size="xs"><ChevronDoubleRightIcon className="w-5" /></Button>
+            </div>
             <div className="h-full overflow-y-auto border-y pt-4 flex flex-col">
                 <RangeInput label="Decay Amount" min={0.0001} max={0.01} step={0.00001} value={graphConfig.decayAmount} onChange={ev => {
                     const value = parseFloat(ev.currentTarget.value);
