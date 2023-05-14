@@ -23,3 +23,12 @@ export const DEFAULT_GRAPH_CONFIG: Required<GraphConfig> = {
         "message-binary-sequence": 0.5,
     },
 };
+
+export interface GraphStats {
+    nodeCount: number,
+    oldestEvent: number | undefined,
+    newestEvent: number | undefined,
+    eventsLoaded: number,
+    eventsProcessed: number,
+    eventsIncluded: number,
+}

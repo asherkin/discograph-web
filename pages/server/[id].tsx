@@ -1,9 +1,9 @@
 import dynamic from "next/dynamic";
 import { useRouter } from "next/router";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 
 import { Callout, CheckboxInput, RangeInput } from "@/components/core";
-import { DEFAULT_GRAPH_CONFIG, GraphConfig } from "@/lib/guildGraphConfig";
+import { DEFAULT_GRAPH_CONFIG, GraphConfig, GraphStats } from "@/lib/guildGraphConfig";
 import { useServersAndHandleTokenRefresh } from "@/pages/servers";
 
 const GuildGraph = dynamic(() => import("@/components/guildGraph"), {
@@ -24,6 +24,33 @@ function useGuildInfo(id: string | string[] | undefined) {
     return { data: guild, error }
 }
 
+function formatTimestamp(timestamp: number): string {
+    function padTwoZeros(n: number): string {
+        return n.toString(10).padStart(2, '0');
+    }
+
+    const date = new Date(timestamp);
+    return `${date.getFullYear()}-${padTwoZeros(date.getMonth() + 1)}-${padTwoZeros(date.getDate())} ${padTwoZeros(date.getHours())}:${padTwoZeros(date.getMinutes())}`;
+}
+
+function GraphStatsDisplay({ stats }: { stats: GraphStats | null }) {
+    const display = [
+        ["Number of Users", stats?.nodeCount],
+        ["Oldest Event", stats?.oldestEvent && formatTimestamp(stats.oldestEvent)],
+        ["Latest Event", stats?.newestEvent && formatTimestamp(stats.newestEvent)],
+        ["Events Loaded", stats?.eventsLoaded],
+        ["Events Processed", stats?.eventsProcessed],
+        ["Events Included", stats?.eventsIncluded],
+    ] as const;
+
+    return <dl className="flow-root border-t pl-0.5 py-3 text-sm">
+        {display.map(([ label, value ]) => <Fragment key={label}>
+            <dt className="float-left w-1/2 opacity-60">{label}</dt>
+            <dd className="float-left w-1/2 text-right opacity-60">{value ?? <>&nbsp;</>}</dd>
+        </Fragment>)}
+    </dl>;
+}
+
 export default function Server() {
     const router = useRouter();
     const { id } = router.query;
@@ -32,6 +59,7 @@ export default function Server() {
     const { data: guild, error: guildError } = useGuildInfo(id);
 
     const [graphConfig, setGraphConfig] = useState<GraphConfig>(DEFAULT_GRAPH_CONFIG);
+    const [graphStats, setGraphStats] = useState<GraphStats | null>(null);
 
     const guildErrorCallout = (guildError && !guild) && <div className="flex-grow flex items-center justify-center p-6">
         <Callout intent="danger">
@@ -41,14 +69,11 @@ export default function Server() {
 
     return <div className="flex flex-col lg:flex-row flex-grow justify-end">
         <div className="flex-grow border rounded-lg flex z-10 lg:-mb-12 max-lg:min-h-[calc(100vh-9.5rem)]">
-            {guild ? <GuildGraph key={guild.id} guild={guild.id} graphConfig={graphConfig} /> : guildErrorCallout}
+            {guild ? <GuildGraph key={guild.id} guild={guild.id} graphConfig={graphConfig} setGraphStats={setGraphStats} /> : guildErrorCallout}
         </div>
-        <div className="max-lg:mt-6 lg:w-80 lg:ms-6 lg:max-h-[calc(100vh-15.5rem)]">
-            <h2 className="lg:text-right text-2xl border-b mb-4">{guild?.name ?? <>&nbsp;</>}</h2>
-            <div className="h-full overflow-y-auto">
-                <Callout intent="warning" className="mb-4">
-                    This page is very much a work in progress. More coming soon.
-                </Callout>
+        <div className="max-lg:mt-6 lg:w-80 lg:ms-6 lg:max-h-[calc(100vh-17.75rem)]">
+            <h2 className="lg:text-right text-2xl">{guild?.name ?? <>&nbsp;</>}</h2>
+            <div className="h-full overflow-y-auto border-y pt-4 flex flex-col">
                 <RangeInput label="Decay Amount" min={0.0001} max={0.01} step={0.00001} value={graphConfig.decayAmount} onChange={ev => {
                     const value = parseFloat(ev.currentTarget.value);
                     setGraphConfig(config => ({ ...config, decayAmount: value }));
@@ -69,6 +94,8 @@ export default function Server() {
                     const checked = ev.currentTarget.checked;
                     setGraphConfig(config => ({ ...config, excludeBots: checked }))
                 }} />
+                <div className="flex-1" />
+                <GraphStatsDisplay stats={graphStats} />
             </div>
         </div>
     </div>;

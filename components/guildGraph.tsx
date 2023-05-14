@@ -10,12 +10,13 @@ import useSWRInfinite, { SWRInfiniteKeyLoader } from "swr/infinite";
 import { Color, Mesh, Object3D, ShaderMaterial, SphereGeometry, Texture, TextureLoader } from "three";
 
 import { Callout } from "@/components/core";
-import { DEFAULT_GRAPH_CONFIG, GraphConfig } from "@/lib/guildGraphConfig";
+import { DEFAULT_GRAPH_CONFIG, GraphConfig, GraphStats } from "@/lib/guildGraphConfig";
 import { ClientGuildMember, ServerResponse } from "@/pages/api/server/[id]";
 
 interface GuildGraphProps {
     guild: string,
     graphConfig?: GraphConfig,
+    setGraphStats?: (stats: GraphStats) => void,
 }
 
 interface Node {
@@ -29,6 +30,7 @@ interface Node {
 
 interface Link {
     weight: number,
+    departed: boolean,
 }
 
 function useGuildEvents(id: string) {
@@ -184,18 +186,13 @@ function createNodeThreeObject({ image_url }: Node) {
 }
 
 interface ComputedGraphData extends GraphData<Node, Link> {
-    stats: {
-        nodeCount: number,
-        oldestEvent: number | undefined,
-        newestEvent: number | undefined,
-        eventsLoaded: number,
-        eventsProcessed: number,
-        eventsIncluded: number,
-    },
+    pagesUsed: number,
+    needsMoreData: boolean,
+    stats: GraphStats,
 }
 
 // TODO: This needs a rewrite and tidy up now that we know what we're doing with it.
-function computeGraphData(config: GraphConfig, events: ServerResponse[], setSize: (size: number) => void): ComputedGraphData {
+function computeGraphData(config: GraphConfig, events: ServerResponse[]): ComputedGraphData {
     const WEIGHT_KEYS = [
         undefined,
         "reaction",
@@ -248,19 +245,18 @@ function computeGraphData(config: GraphConfig, events: ServerResponse[], setSize
 
             const weight = eventWeight * decay;
 
-            if (config.excludeBots && (userInfo.get(event.source)?.bot || userInfo.get(event.target)?.bot)) {
-                continue;
+            const isBot = userInfo.get(event.source)?.bot || userInfo.get(event.target)?.bot;
+            if (!isBot || !config.excludeBots) {
+                nodes.set(event.source, (nodes.get(event.source) ?? 0) + weight);
+                nodes.set(event.target, (nodes.get(event.target) ?? 0) + weight);
+
+                const key = [event.source, event.target].sort().join(':');
+                links.set(key, (links.get(key) ?? 0) + weight);
+
+                eventsIncluded += 1;
             }
 
-            nodes.set(event.source, (nodes.get(event.source) ?? 0) + weight);
-            nodes.set(event.target, (nodes.get(event.target) ?? 0) + weight);
-
-            const key = [event.source, event.target].sort().join(':');
-            links.set(key, (links.get(key) ?? 0) + weight);
-
             decay -= weight * decayAmount;
-
-            eventsIncluded += 1;
 
             if (decay <= decayThreshold) {
                 break;
@@ -277,12 +273,13 @@ function computeGraphData(config: GraphConfig, events: ServerResponse[], setSize
     // If we've still got room in decay, request another page of events.
     // TODO: Avoid reprocessing the events we've already looked at.
     // TODO: Ensure users can't set the graph settings to be pathological here.
+    let needsMoreData = false;
     if (decay > decayThreshold) {
         const lastPage = events.at(-1);
         const lastPageFull = lastPage && lastPage.events.length === lastPage.limit;
 
         if (lastPageFull) {
-            setSize(events.length + 1);
+            needsMoreData = true;
         }
     }
 
@@ -290,7 +287,8 @@ function computeGraphData(config: GraphConfig, events: ServerResponse[], setSize
 
     const linksArray = Array.from(links.entries()).map(([key, weight]) => {
         const [source, target] = key.split(':');
-        return { source, target, weight };
+        const departed = userInfo.get(source)?.departed || userInfo.get(target)?.departed || false;
+        return { source, target, weight, departed };
     }).filter(({ source, target, weight }) => {
         return weight >= linkThreshold && Math.min(nodes.get(source) ?? 0, nodes.get(target) ?? 0) >= nodeThreshold;
     }).map(link => {
@@ -317,6 +315,8 @@ function computeGraphData(config: GraphConfig, events: ServerResponse[], setSize
     return {
         nodes: nodesArray,
         links: linksArray,
+        pagesUsed: events.length,
+        needsMoreData,
         stats: {
             nodeCount: nodesArray.length,
             oldestEvent,
@@ -390,19 +390,28 @@ function MyForceGraph3D({ graphRef, ...props }: ForceGraphProps<Node, Link> & { 
     return <ForceGraph3D ref={innerGraphRef} {...props} />;
 }
 
-export default function GuildGraph({ guild, graphConfig }: GuildGraphProps) {
-    const { data: events, error: eventsError, setSize } = useGuildEvents(guild);
+export default function GuildGraph({ guild, graphConfig, setGraphStats }: GuildGraphProps) {
+    const { data: events, error: eventsError, setSize, isLoading } = useGuildEvents(guild);
     // console.log(id, events, eventsError);
 
     const [ graphData, setGraphData ] = useState<ComputedGraphData | undefined>(undefined);
     useEffect(() => {
         if (events) {
-            setGraphData(computeGraphData(graphConfig ?? {}, events, setSize));
+            setGraphData(computeGraphData(graphConfig ?? {}, events));
         }
-    }, [graphConfig, events, setSize]);
+    }, [graphConfig, events]);
 
-    // TODO: Pass this to the parent component for display.
-    console.log(graphData?.stats);
+    useEffect(() => {
+        if (graphData) {
+            if (graphData.needsMoreData) {
+                setSize(graphData.pagesUsed + 1);
+            }
+
+            if (setGraphStats) {
+                setGraphStats(graphData.stats);
+            }
+        }
+    }, [graphData, setSize, setGraphStats]);
 
     const graphRef = useRef<ForceGraphMethods<Node, Link> | undefined>();
 
@@ -464,17 +473,14 @@ export default function GuildGraph({ guild, graphConfig }: GuildGraphProps) {
         () => window.matchMedia('(prefers-color-scheme: dark)').matches);
 
     const linkColor = useCallback((link: LinkObject<Node, Link>) => {
-        if (typeof link.source === "object" && typeof link.target === "object") {
-            if (link.source.id === selectedNode || link.target.id === selectedNode) {
-                return isDarkMode ? "#FFFFFF" : "rgb(79 70 229)";
-            }
+        const sourceIsSelected = (typeof link.source === "object") ? (link.source.id === selectedNode) : (link.source === selectedNode);
+        const targetIsSelected = (typeof link.target === "object") ? (link.target.id === selectedNode) : (link.target === selectedNode);
 
-            if (link.source.departed || link.target.departed) {
-                return isDarkMode ? "#FFFFFF33" : "#66666633";
-            }
+        if (sourceIsSelected || targetIsSelected) {
+            return isDarkMode ? "#FFFFFF" : "rgb(79 70 229)";
         }
 
-        if (selectedNode !== null) {
+        if (selectedNode !== null || link.departed) {
             return isDarkMode ? "#FFFFFF33" : "#66666633";
         }
 
@@ -492,16 +498,21 @@ export default function GuildGraph({ guild, graphConfig }: GuildGraphProps) {
         </div>;
     }
 
+    const loadingSpinner = (className: string) => <svg xmlns="http://www.w3.org/2000/svg" className={`${className} animate-spin stroke-current stroke-1`} fill="none" viewBox="0 0 24 24">
+        <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" className="stroke-current opacity-25" />
+        <path d="M12 2C6.47715 2 2 6.47715 2 12C2 14.7255 3.09032 17.1962 4.85857 19" />
+    </svg>;
+
     if (!graphData) {
         return <div className="flex-grow flex items-center justify-center p-6">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-20 w-20 flex-1 animate-spin stroke-current stroke-1" fill="none" viewBox="0 0 24 24">
-                <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" className="stroke-current opacity-25" />
-                <path d="M12 2C6.47715 2 2 6.47715 2 12C2 14.7255 3.09032 17.1962 4.85857 19" />
-            </svg>
+            {loadingSpinner("h-20 w-20 flex-1")}
         </div>;
     }
 
-    if (graphData.nodes.length === 0) {
+    // TODO: This has a bit of jitter to it, after loading the first page it is briefly true.
+    const stable = !isLoading && !graphData.needsMoreData;
+
+    if (stable && graphData.nodes.length === 0) {
         return <div className="flex-grow flex items-center justify-center p-6">
             <Callout intent="warning">
                 Not enough data to display a graph, adjust settings or wait for more data.
@@ -527,9 +538,11 @@ export default function GuildGraph({ guild, graphConfig }: GuildGraphProps) {
                 onBackgroundClick={handleBackgroundClick}
                 nodeThreeObject={nodeThreeObject}
                 warmupTicks={20}
-                nodeResolution={12}
             />
         </div>
+        {!stable && <div className="absolute pointer-events-none top-2 right-2 opacity-60">
+            {loadingSpinner("w-12")}
+        </div>}
         <div className="absolute pointer-events-none bottom-1 inset-x-0 text-center text-xs opacity-40">
             Left-click: rotate, Mouse-wheel/middle-click: zoom, Right-click: pan
         </div>
