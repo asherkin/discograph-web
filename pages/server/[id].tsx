@@ -3,12 +3,13 @@ import {
     ChevronDoubleRightIcon,
     ChevronLeftIcon,
     ChevronRightIcon,
-} from "@heroicons/react/24/outline";
+} from "@heroicons/react/20/solid";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/router";
 import { Fragment, useCallback, useState } from "react";
 
 import { Button, Callout, CheckboxInput, RangeInput } from "@/components/core";
+import { SmallStepIcon } from "@/components/icons";
 import { DEFAULT_GRAPH_CONFIG, GraphConfig, GraphStats } from "@/lib/guildGraphConfig";
 import { useServersAndHandleTokenRefresh } from "@/pages/servers";
 
@@ -30,20 +31,24 @@ function useGuildInfo(id: string | string[] | undefined) {
     return { data: guild, error }
 }
 
-function formatTimestamp(timestamp: number): string {
-    function padTwoZeros(n: number): string {
-        return n.toString(10).padStart(2, '0');
-    }
+function padTwoZeros(n: number): string {
+    return n.toString(10).padStart(2, '0');
+}
 
+function Timestamp({ timestamp, separator = " " }: { timestamp: number, separator?: any }) {
     const date = new Date(timestamp);
-    return `${date.getFullYear()}-${padTwoZeros(date.getMonth() + 1)}-${padTwoZeros(date.getDate())} ${padTwoZeros(date.getHours())}:${padTwoZeros(date.getMinutes())}`;
+
+    const dateString = `${date.getFullYear()}-${padTwoZeros(date.getMonth() + 1)}-${padTwoZeros(date.getDate())}`;
+    const timeString = `${padTwoZeros(date.getHours())}:${padTwoZeros(date.getMinutes())}`;
+
+    return <>{dateString}{separator}{timeString}</>;
 }
 
 function GraphStatsDisplay({ stats }: { stats: GraphStats | null }) {
     const display = [
         ["Number of Users", stats?.nodeCount],
-        ["Oldest Event", stats?.oldestEvent && formatTimestamp(stats.oldestEvent)],
-        ["Latest Event", stats?.newestEvent && formatTimestamp(stats.newestEvent)],
+        ["Oldest Event", stats?.oldestEvent && <Timestamp timestamp={stats.oldestEvent} />],
+        ["Latest Event", stats?.newestEvent && <Timestamp timestamp={stats.newestEvent} />],
         ["Events Loaded", stats?.eventsLoaded],
         ["Events Processed", stats?.eventsProcessed],
         ["Events Included", stats?.eventsIncluded],
@@ -82,14 +87,29 @@ export default function Server() {
         <div className="flex-grow border rounded-lg flex z-10 lg:-mb-12 max-lg:min-h-[calc(100vh-9.5rem)]">
             {guild ? <GuildGraph key={guild.id} guild={guild.id} timestamp={timestamp} graphConfig={graphConfig} setGraphStats={setGraphStats} /> : guildErrorCallout}
         </div>
-        <div className="max-lg:mt-6 lg:w-80 lg:ms-6 lg:max-h-[calc(100vh-17.75rem)]">
+        <div className="max-lg:mt-6 lg:w-80 lg:ms-6 lg:max-h-[calc(100vh-18.75rem)]">
             <h2 className="text-center text-2xl">{guild?.name ?? <>&nbsp;</>}</h2>
-            <div className="pt-2 pb-3 flex">
-                <Button onClick={adjustTimestamp.bind(null, -(1000 * 60 * 60 * 24 * 30))} size="xs"><ChevronDoubleLeftIcon className="w-5" /></Button>
-                <Button onClick={adjustTimestamp.bind(null, -(1000 * 60 * 60 * 24))} size="xs" className="mx-1"><ChevronLeftIcon className="w-5" /></Button>
-                <span className="p-1 flex-1 text-center" suppressHydrationWarning={true}>{formatTimestamp(timestamp)}</span>
-                <Button onClick={adjustTimestamp.bind(null, (1000 * 60 * 60 * 24))} size="xs" className="mx-1"><ChevronRightIcon className="w-5" /></Button>
-                <Button onClick={adjustTimestamp.bind(null, (1000 * 60 * 60 * 24 * 30))} size="xs"><ChevronDoubleRightIcon className="w-5" /></Button>
+            <div className="pt-2 pb-3 space-x-1 flex items-center">
+                <Button onClick={adjustTimestamp.bind(null, -(1000 * 60 * 60 * 24 * 30))} size="xs" title="-1 month">
+                    <ChevronDoubleLeftIcon className="w-5" />
+                </Button>
+                <Button onClick={adjustTimestamp.bind(null, -(1000 * 60 * 60 * 24))} size="xs" title="-1 day">
+                    <ChevronLeftIcon className="w-5" />
+                </Button>
+                <Button onClick={adjustTimestamp.bind(null, -(1000 * 60 * 60))} size="xs" title="-1 hour">
+                    <SmallStepIcon className="w-5 -scale-x-100" />
+                </Button>
+                <span className="p-1 flex-1 text-center text-sm" suppressHydrationWarning={true}>
+                    <Timestamp timestamp={timestamp} separator={<br />} /></span>
+                <Button onClick={adjustTimestamp.bind(null, (1000 * 60 * 60))} size="xs" title="+1 hour">
+                    <SmallStepIcon className="w-5" />
+                </Button>
+                <Button onClick={adjustTimestamp.bind(null, (1000 * 60 * 60 * 24))} size="xs" title="+1 day">
+                    <ChevronRightIcon className="w-5" />
+                </Button>
+                <Button onClick={adjustTimestamp.bind(null, (1000 * 60 * 60 * 24 * 30))} size="xs" title="+1 month">
+                    <ChevronDoubleRightIcon className="w-5" />
+                </Button>
             </div>
             <div className="h-full overflow-y-auto border-y flex flex-col">
                 <div className="space-y-3 my-3">
