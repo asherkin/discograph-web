@@ -13,7 +13,7 @@ interface ButtonProps {
     disabled?: boolean,
 }
 
-function addUtilitiesToClassName(className: string | undefined, { intent, size, disabled }: ButtonProps): string {
+function addUtilitiesToClassName(className: string | undefined, { intent = "none", size = "md", disabled = false }: ButtonProps): string {
     const intentClasses = {
         none: "border-slate-300 dark:border-slate-500",
         primary: "bg-indigo-700 border-indigo-700 text-white",
@@ -29,9 +29,12 @@ function addUtilitiesToClassName(className: string | undefined, { intent, size, 
         md: "rounded-lg px-4 py-2",
     };
 
-    const disabledClasses = "opacity-60 dark:opacity-50";
+    const disabledClasses = {
+        none: "opacity-30 dark:opacity-20",
+        primary: "opacity-60 dark:opacity-50",
+    };
 
-    return `border ${sizeClasses[size ?? "md"]} text-center leading-5 ${intentClasses[intent ?? "none"]} ${disabled ? disabledClasses : intentHoverClasses[intent ?? "none"]} ${className ?? ""}`;
+    return `border ${sizeClasses[size]} text-center leading-5 ${intentClasses[intent]} ${disabled ? disabledClasses[intent] : intentHoverClasses[intent]} ${className ?? ""}`;
 }
 
 export function Button({ intent, size, disabled = false, type = "button", className, ...innerProps }: PropsWithChildren<ButtonProps & Omit<DetailedHTMLProps<ButtonHTMLAttributes<HTMLButtonElement>, HTMLButtonElement>, keyof ButtonProps>>) {

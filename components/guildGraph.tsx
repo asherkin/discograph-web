@@ -11,7 +11,7 @@ import { Color, Mesh, Object3D, ShaderMaterial, SphereGeometry, Texture, Texture
 
 import { Callout } from "@/components/core";
 import { DEFAULT_GRAPH_CONFIG, GraphConfig, GraphStats } from "@/lib/guildGraphConfig";
-import { ClientGuildMember, ServerResponse } from "@/pages/api/server/[id]";
+import { ClientGuildMember, EventsResponse } from "@/pages/api/server/[id]/events";
 
 interface GuildGraphProps {
     guild: string,
@@ -35,7 +35,7 @@ interface Link {
 }
 
 function useGuildEvents(id: string, timestamp: number | undefined) {
-    const getKey: SWRInfiniteKeyLoader<ServerResponse> = useCallback((pageIndex, previousPageData) => {
+    const getKey: SWRInfiniteKeyLoader<EventsResponse> = useCallback((pageIndex, previousPageData) => {
         if (previousPageData && previousPageData.events.length < previousPageData.limit) {
             return null;
         }
@@ -49,10 +49,10 @@ function useGuildEvents(id: string, timestamp: number | undefined) {
             params.set("before", before);
         }
 
-        return `/api/server/${id}?${params.toString()}`;
+        return `/api/server/${id}/events?${params.toString()}`;
     }, [id, timestamp]);
 
-    return useSWRInfinite<ServerResponse>(getKey, {
+    return useSWRInfinite<EventsResponse>(getKey, {
         revalidateFirstPage: timestamp !== undefined,
         // keepPreviousData: true,
     });
@@ -187,7 +187,7 @@ interface ComputedGraphData extends GraphData<Node, Link> {
 }
 
 // TODO: This needs a rewrite and tidy up now that we know what we're doing with it.
-function computeGraphData(config: GraphConfig, events: ServerResponse[], previousNodes: Map<string, NodeObject<Node>>): ComputedGraphData {
+function computeGraphData(config: GraphConfig, events: EventsResponse[], previousNodes: Map<string, NodeObject<Node>>): ComputedGraphData {
     const WEIGHT_KEYS = [
         undefined,
         "reaction",

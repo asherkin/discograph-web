@@ -6,11 +6,19 @@ import {
 } from "@heroicons/react/20/solid";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/router";
-import { Fragment, useCallback, useState } from "react";
+import { ParsedUrlQueryInput } from "querystring";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 
 import { Button, Callout, CheckboxInput, RangeInput } from "@/components/core";
 import { SmallStepIcon } from "@/components/icons";
-import { DEFAULT_GRAPH_CONFIG, GraphConfig, GraphStats } from "@/lib/guildGraphConfig";
+import {
+    decodeGraphConfig,
+    DEFAULT_ENCODED_GRAPH_CONFIG,
+    DEFAULT_GRAPH_CONFIG,
+    encodeGraphConfig,
+    GraphConfig,
+    GraphStats,
+} from "@/lib/guildGraphConfig";
 import { useServersAndHandleTokenRefresh } from "@/pages/servers";
 
 const GuildGraph = dynamic(() => import("@/components/guildGraph"), {
@@ -62,20 +70,116 @@ function GraphStatsDisplay({ stats }: { stats: GraphStats | null }) {
     </dl>;
 }
 
+function roundTimestamp(timestamp: number, roundTo: number): number {
+    return timestamp - (timestamp % roundTo);
+}
+
+// TODO: The state and logic in here is getting quite hairy, it'd be nice to break it up a bit.
 export default function Server() {
     const router = useRouter();
-    const { id } = router.query;
+    let { id, timestamp: routeTimestamp, config: routeConfigString } = router.query;
 
     // We mostly make this request to refresh the user token on a direct link to this page.
     const { data: guild, error: guildError } = useGuildInfo(id);
 
-    const [timestamp, setTimestamp] = useState(Date.now());
-    const [graphConfig, setGraphConfig] = useState<GraphConfig>(DEFAULT_GRAPH_CONFIG);
+    let timestamp: number | undefined = undefined;
+    if (routeTimestamp !== undefined) {
+        routeTimestamp = routeTimestamp[0];
+
+        if (routeTimestamp !== undefined) {
+            timestamp = parseInt(routeTimestamp, 10);
+
+            if (isNaN(timestamp)) {
+                timestamp = undefined;
+            } else {
+                timestamp *= 1000;
+            }
+        }
+    }
+
+    const [graphConfig, innerSetGraphConfig] = useState<GraphConfig>(DEFAULT_GRAPH_CONFIG);
     const [graphStats, setGraphStats] = useState<GraphStats | null>(null);
 
-    const adjustTimestamp = useCallback((offset: number) => {
-        setTimestamp(timestamp => Math.min(timestamp + offset, Date.now()));
+    useEffect(() => {
+        if (routeConfigString === undefined) {
+            innerSetGraphConfig(DEFAULT_GRAPH_CONFIG);
+            return;
+        }
+
+        const routeConfig = decodeGraphConfig(routeConfigString as string);
+        if (routeConfig !== undefined) {
+            innerSetGraphConfig(routeConfig);
+        } else {
+            innerSetGraphConfig(DEFAULT_GRAPH_CONFIG);
+        }
+    }, [routeConfigString]);
+
+    const debounceRef = useRef<any>();
+    useEffect(() => {
+        return () => {
+            if (debounceRef.current) {
+                clearTimeout(debounceRef.current);
+            }
+        }
     }, []);
+
+    const setGraphConfig = useCallback((newConfig: (config: GraphConfig) => GraphConfig) => {
+        if (id === undefined) {
+            return;
+        }
+
+        const config = newConfig(graphConfig);
+        innerSetGraphConfig(config);
+
+        if (debounceRef.current) {
+            clearTimeout(debounceRef.current);
+        }
+
+        debounceRef.current = setTimeout(() => {
+            const newTimestamp = timestamp !== undefined ?
+                roundTimestamp(timestamp, 1000) / 1000 :
+                undefined;
+
+            const query: ParsedUrlQueryInput = { id, timestamp: newTimestamp };
+
+            const encodedConfig = encodeGraphConfig(config);
+            if (encodedConfig !== DEFAULT_ENCODED_GRAPH_CONFIG) {
+                query.config = encodedConfig;
+            }
+
+            router.replace({ query }, undefined, { shallow: true });
+        }, 200);
+    }, [router, id, timestamp, graphConfig]);
+
+    const [mountTimestamp, setMountTimestamp] = useState(Date.now());
+    const renderTimestamp = roundTimestamp(timestamp ?? mountTimestamp, 1000 * 60);
+
+    const adjustTimestamp = useCallback((offset: number) => {
+        if (id === undefined) {
+            return;
+        }
+
+        const offsetTimestamp = renderTimestamp + offset;
+
+        const now = Date.now();
+        const newTimestamp = (offsetTimestamp < now) ? offsetTimestamp : undefined;
+        if (newTimestamp === undefined) {
+            setMountTimestamp(now);
+        }
+
+        const newRouteTimestamp = newTimestamp !== undefined ?
+            roundTimestamp(newTimestamp, 1000) / 1000 :
+            undefined;
+
+        const query: ParsedUrlQueryInput = { id, timestamp: newRouteTimestamp };
+
+        const encodedConfig = encodeGraphConfig(graphConfig);
+        if (encodedConfig !== DEFAULT_ENCODED_GRAPH_CONFIG) {
+            query.config = encodedConfig;
+        }
+
+        router.replace({ query }, undefined, { shallow: true });
+    }, [router, id, graphConfig, renderTimestamp]);
 
     const guildErrorCallout = (guildError && !guild) && <div className="flex-grow flex items-center justify-center p-6">
         <Callout intent="danger">
@@ -85,7 +189,7 @@ export default function Server() {
 
     return <div className="flex flex-col lg:flex-row flex-grow justify-end">
         <div className="flex-grow border rounded-lg flex z-10 lg:-mb-12 max-lg:min-h-[calc(100vh-9.5rem)]">
-            {guild ? <GuildGraph key={guild.id} guild={guild.id} timestamp={timestamp} graphConfig={graphConfig} setGraphStats={setGraphStats} /> : guildErrorCallout}
+            {guild ? <GuildGraph key={guild.id} guild={guild.id} timestamp={renderTimestamp} graphConfig={graphConfig} setGraphStats={setGraphStats} /> : guildErrorCallout}
         </div>
         <div className="max-lg:mt-6 lg:w-80 lg:ms-6 lg:max-h-[calc(100vh-18.75rem)]">
             <h2 className="text-center text-2xl">{guild?.name ?? <>&nbsp;</>}</h2>
@@ -99,8 +203,9 @@ export default function Server() {
                 <Button onClick={adjustTimestamp.bind(null, -(1000 * 60 * 60))} size="xs" title="-1 hour">
                     <SmallStepIcon className="w-5 -scale-x-100" />
                 </Button>
-                <span className="p-1 flex-1 text-center text-sm" suppressHydrationWarning={true}>
-                    <Timestamp timestamp={timestamp} separator={<br />} /></span>
+                <span className="p-1 h-12 flex-1 text-center text-sm" suppressHydrationWarning={true}>
+                    {guild && <Timestamp timestamp={renderTimestamp} separator={<br />} />}
+                </span>
                 <Button onClick={adjustTimestamp.bind(null, (1000 * 60 * 60))} size="xs" title="+1 hour">
                     <SmallStepIcon className="w-5" />
                 </Button>
@@ -140,7 +245,17 @@ export default function Server() {
                         }} />
                     </div>
                 </div>
-                <div className="flex-1" />
+                <div className="grow" />
+                <div className="flex space-x-2 mb-3.5">
+                    <Button className="grow basis-1/2" onClick={async () => {
+                        await router.push({ query: { ...router.query, dummy: 1 } }, undefined, { shallow: true });
+                        setGraphConfig(() => DEFAULT_GRAPH_CONFIG);
+                    }} disabled={encodeGraphConfig(graphConfig) === DEFAULT_ENCODED_GRAPH_CONFIG}>Reset Settings</Button>
+                    <Button className="grow basis-1/2" onClick={async () => {
+                        await router.push({ query: { ...router.query, dummy: 1 } }, undefined, { shallow: true });
+                        adjustTimestamp(Infinity);
+                    }}>Jump to Now</Button>
+                </div>
                 <GraphStatsDisplay stats={graphStats} />
             </div>
         </div>

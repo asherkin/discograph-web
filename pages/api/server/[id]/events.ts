@@ -21,7 +21,7 @@ export interface ClientGuildMember {
     departed: boolean,
 }
 
-export type ServerResponse = {
+export type EventsResponse = {
     limit: number,
     events: ClientRelationshipEvent[],
     users: ClientGuildMember[],
@@ -311,7 +311,7 @@ async function getUserInfo(guildId: string, userIds: string[]): Promise<ClientGu
 }
 
 // TODO: Rate limit this and the servers API per-user.
-const server: NextApiHandler<ServerResponse | ErrorResponse> = async (req, res) => {
+const events: NextApiHandler<EventsResponse | ErrorResponse> = async (req, res) => {
     const { token, guildId } = await getTokenAndGuildIdFromRequest(req, res);
     if (!token) {
         return;
@@ -357,4 +357,4 @@ const server: NextApiHandler<ServerResponse | ErrorResponse> = async (req, res) 
     });
 };
 
-export default server;
+export default events;
