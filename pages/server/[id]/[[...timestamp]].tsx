@@ -4,13 +4,18 @@ import {
     ChevronLeftIcon,
     ChevronRightIcon,
 } from "@heroicons/react/20/solid";
+import { GetServerSideProps } from "next";
+import { getToken } from "next-auth/jwt";
+import { signIn } from "next-auth/react";
 import dynamic from "next/dynamic";
+import Head from "next/head";
 import { useRouter } from "next/router";
-import { ParsedUrlQueryInput } from "querystring";
+import { ParsedUrlQuery, ParsedUrlQueryInput } from "querystring";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 
 import { Button, Callout, CheckboxInput, RangeInput } from "@/components/core";
 import { SmallStepIcon } from "@/components/icons";
+import { db } from "@/lib/db";
 import {
     decodeGraphConfig,
     DEFAULT_ENCODED_GRAPH_CONFIG,
@@ -19,14 +24,83 @@ import {
     GraphConfig,
     GraphStats,
 } from "@/lib/guildGraphConfig";
+import { avatarToHash } from "@/pages/api/server/[id]/events";
+import { ClientDiscordGuildInfo } from "@/pages/api/servers";
 import { useServersAndHandleTokenRefresh } from "@/pages/servers";
 
 const GuildGraph = dynamic(() => import("@/components/guildGraph"), {
     ssr: false,
 });
 
-function useGuildInfo(id: string | string[] | undefined) {
-    let { data: guilds, error } = useServersAndHandleTokenRefresh();
+interface ServerParams extends ParsedUrlQuery {
+    id: string,
+    timestamp: string[] | undefined,
+}
+
+interface ServerProps {
+    id: string,
+    guild: ClientDiscordGuildInfo | null,
+    authenticationRequired: boolean,
+}
+
+export const getServerSideProps: GetServerSideProps<ServerProps, ServerParams> = async (context) => {
+    const id = context.params!.id;
+    if (!id.match(/^\d+$/)) {
+        return {
+            notFound: true,
+        };
+    }
+
+    if (context.params?.timestamp && (context.params.timestamp.length > 1 || Number.isNaN(parseInt(context.params.timestamp[0], 10)))) {
+        return {
+            notFound: true,
+        };
+    }
+
+    const guild = (await db.query<[{
+        name: string | null,
+        icon: Buffer | null,
+        animated: number,
+        flags: number,
+    } | undefined]>(
+        "SELECT name, icon, animated, flags FROM guilds WHERE id = ? AND departed IS NULL",
+        [id]))[0];
+
+    if (!guild) {
+        return {
+            notFound: true,
+        };
+    }
+
+    const icon = guild.icon && avatarToHash(guild.icon,  guild.animated !== 0);
+    const iconFormat = (guild.animated !== 0) ? "gif" : "png";
+
+    const clientGuild = {
+        id,
+        name: guild.name ?? id,
+        can_manage: false,
+        icon_url: icon ? `https://cdn.discordapp.com/icons/${id}/${icon}.png` : null,
+        hover_icon_url: icon ? `https://cdn.discordapp.com/icons/${id}/${icon}.${iconFormat}` : null,
+    };
+
+    const isDiscoverable = (guild.flags & (1 << 0)) !== 0;
+
+    const token = await getToken({ req: context.req });
+    const authenticationRequired = token === null;
+
+    const includeGuild = (authenticationRequired && isDiscoverable);
+
+    return {
+        props: {
+            id: id,
+            guild: includeGuild ? clientGuild : null,
+            authenticationRequired,
+        },
+    };
+};
+
+function useGuildInfo(id: string | null) {
+    let { data: guilds, error } = useServersAndHandleTokenRefresh(id !== null);
 
     let guild;
     if (guilds) {
@@ -75,16 +149,25 @@ function roundTimestamp(timestamp: number, roundTo: number): number {
 }
 
 // TODO: The state and logic in here is getting quite hairy, it'd be nice to break it up a bit.
-export default function Server() {
+export default function Server({ id, guild: guildProp, authenticationRequired }: ServerProps) {
+    useEffect(() => {
+        if (authenticationRequired) {
+            signIn("discord");
+        }
+    }, [authenticationRequired]);
+
     const router = useRouter();
-    let { id, timestamp: routeTimestamp, config: routeConfigString } = router.query;
+    let { timestamp: routeTimestamp, config: routeConfigString } = router.query;
 
     // We mostly make this request to refresh the user token on a direct link to this page.
-    const { data: guild, error: guildError } = useGuildInfo(id);
+    const { data: guildRequest, error: guildError } = useGuildInfo((authenticationRequired || guildProp) ? null : id);
+    const guild = guildProp ?? guildRequest;
 
     let timestamp: number | undefined = undefined;
     if (routeTimestamp !== undefined) {
-        routeTimestamp = routeTimestamp[0];
+        if (Array.isArray(routeTimestamp)) {
+            routeTimestamp = routeTimestamp[0];
+        }
 
         if (routeTimestamp !== undefined) {
             timestamp = parseInt(routeTimestamp, 10);
@@ -123,6 +206,8 @@ export default function Server() {
         }
     }, []);
 
+    const pushNextRouteChange = useRef(true);
+
     const setGraphConfig = useCallback((newConfig: (config: GraphConfig) => GraphConfig) => {
         if (id === undefined) {
             return;
@@ -147,7 +232,9 @@ export default function Server() {
                 query.config = encodedConfig;
             }
 
-            router.replace({ query }, undefined, { shallow: true });
+            const routeChangeFunction = pushNextRouteChange.current ? router.push : router.replace;
+            routeChangeFunction({ query }, undefined, { shallow: true });
+            pushNextRouteChange.current = false;
         }, 200);
     }, [router, id, timestamp, graphConfig]);
 
@@ -178,7 +265,9 @@ export default function Server() {
             query.config = encodedConfig;
         }
 
-        router.replace({ query }, undefined, { shallow: true });
+        const routeChangeFunction = pushNextRouteChange.current ? router.push : router.replace;
+        routeChangeFunction({ query }, undefined, { shallow: true });
+        pushNextRouteChange.current = false;
     }, [router, id, graphConfig, renderTimestamp]);
 
     const guildErrorCallout = (guildError && !guild) && <div className="flex-grow flex items-center justify-center p-6">
@@ -187,9 +276,20 @@ export default function Server() {
         </Callout>
     </div>;
 
+    const baseUrl = (typeof window !== "undefined") ? window.location.href : (process.env.NEXTAUTH_URL || "http://localhost:3000");
+    const canonicalUrl = id && (new URL(`/server/${id}`, baseUrl)).href;
+
     return <div className="flex flex-col lg:flex-row flex-grow justify-end">
+        <Head>
+            {guild && <title>{`${guild.name} - DiscoGraph`}</title>}
+            {guild && <meta key="og-title" property="og:title" content={`${guild.name} - DiscoGraph`} />}
+            {guild && <meta key="description" name="description" content={`A relationship graph of ${guild.name}, produced by DiscoGraph - A Discord Bot that infers conversations between users and draws pretty graphs.`} />}
+            {guild && <meta key="og-description" property="og:description" content={`A relationship graph of ${guild.name}, produced by DiscoGraph - A Discord Bot that infers conversations between users and draws pretty graphs.`} />}
+            {canonicalUrl && <link rel="canonical" href={canonicalUrl} />}
+            {canonicalUrl && <meta key="og-url" property="og:url" content={canonicalUrl} />}
+        </Head>
         <div className="flex-grow border rounded-lg flex z-10 lg:-mb-12 max-lg:min-h-[calc(100vh-9.5rem)]">
-            {guild ? <GuildGraph key={guild.id} guild={guild.id} timestamp={renderTimestamp} graphConfig={graphConfig} setGraphStats={setGraphStats} /> : guildErrorCallout}
+            {(guild && !authenticationRequired) ? <GuildGraph key={guild.id} guild={guild.id} timestamp={renderTimestamp} graphConfig={graphConfig} setGraphStats={setGraphStats} /> : guildErrorCallout}
         </div>
         <div className="max-lg:mt-6 lg:w-80 lg:ms-6 lg:max-h-[calc(100vh-18.75rem)]">
             <h2 className="text-center text-2xl">{guild?.name ?? <>&nbsp;</>}</h2>
@@ -204,7 +304,7 @@ export default function Server() {
                     <SmallStepIcon className="w-5 -scale-x-100" />
                 </Button>
                 <span className="p-1 h-12 flex-1 text-center text-sm" suppressHydrationWarning={true}>
-                    {guild && <Timestamp timestamp={renderTimestamp} separator={<br />} />}
+                    <Timestamp timestamp={renderTimestamp} separator={<br />} />
                 </span>
                 <Button onClick={adjustTimestamp.bind(null, (1000 * 60 * 60))} size="xs" title="+1 hour">
                     <SmallStepIcon className="w-5" />
@@ -248,11 +348,11 @@ export default function Server() {
                 <div className="grow" />
                 <div className="flex space-x-2 mb-3.5">
                     <Button className="grow basis-1/2" onClick={async () => {
-                        await router.push({ query: { ...router.query, dummy: 1 } }, undefined, { shallow: true });
+                        pushNextRouteChange.current = true;
                         setGraphConfig(() => DEFAULT_GRAPH_CONFIG);
                     }} disabled={encodeGraphConfig(graphConfig) === DEFAULT_ENCODED_GRAPH_CONFIG}>Reset Settings</Button>
                     <Button className="grow basis-1/2" onClick={async () => {
-                        await router.push({ query: { ...router.query, dummy: 1 } }, undefined, { shallow: true });
+                        pushNextRouteChange.current = true;
                         adjustTimestamp(Infinity);
                     }}>Jump to Now</Button>
                 </div>

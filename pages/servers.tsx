@@ -33,11 +33,11 @@ function GuildCardList({ guilds, subtitle, title, initialExpanded = false, inter
 }
 
 // This is the client-side counterpart to the hackery detailed in /api/servers.
-export function useServersAndHandleTokenRefresh() {
+export function useServersAndHandleTokenRefresh(makeRequest = true) {
     const { update } = useSession();
 
     const tokenNeededRefresh = useRef(false);
-    const { data, error } = useSWR<ServersResponse>("/api/servers");
+    const { data, error } = useSWR<ServersResponse>(makeRequest ? "/api/servers" : null);
 
     const tokenNeedsRefresh = data?.tokenNeedsRefresh;
     useEffect(() => {

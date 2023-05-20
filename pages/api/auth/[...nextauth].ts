@@ -7,6 +7,7 @@ import { getApplicationInfo, getUserGuilds } from "@/lib/discord";
 export default NextAuth({
     pages: {
         signIn: "/auth/login",
+        error: "/auth/login",
     },
     callbacks: {
         async jwt({ token, account, session }) {

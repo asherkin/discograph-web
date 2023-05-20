@@ -7,6 +7,5 @@ export const config = {
     matcher: [
         "/test",
         "/servers",
-        "/server/:path*",
     ],
 };

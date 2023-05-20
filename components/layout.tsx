@@ -22,7 +22,7 @@ function UserInfo({ signInToDashboard, signOutToIndex }: UserInfoProps) {
     }
 
     if (status !== "authenticated") {
-        return <Button onClick={() => signIn(undefined, { callbackUrl: signInToDashboard ? "/servers" : undefined })}>Login with Discord</Button>;
+        return <Button onClick={() => signIn("discord", { callbackUrl: signInToDashboard ? "/servers" : undefined })}>Login with Discord</Button>;
     }
 
     return <div className={`flex items-center ${signInToDashboard ? "" : "max-sm:hidden"}`}>

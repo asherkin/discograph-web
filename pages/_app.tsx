@@ -10,6 +10,7 @@ export async function fetcher<T = any>(...args: Parameters<typeof fetch>): Promi
   const res = await fetch(...args);
 
   if (!res.ok) {
+    // TODO: If the API call made a Discord request, and we got back a 401 from Discord, nuke their session.
     const error: Error & { info?: string, status?: number } = new Error("An error occurred while fetching the data.");
     error.info = await res.json();
     error.status = res.status;
@@ -33,13 +34,13 @@ export default function App({ Component, pageProps: { session, ...pageProps }, r
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <link rel="apple-touch-icon" type="image/png" sizes="256x256" href="/logo-256.png" />
         <meta key="description" name="description" content="A Discord Bot that infers conversations between users and draws pretty graphs." />
-        <meta property="og:title" content="DiscoGraph" />
-        <meta property="og:description" content="A Discord Bot that infers conversations between users and draws pretty graphs." />
-        <meta property="og:type" content="website" />
-        <meta property="og:image" content={(new URL('/logo-256.png', baseUrl)).href} />
-        <meta property="og:image:width" content="256" />
-        <meta property="og:image:height" content="256" />
-        <meta property="og:url" content={baseUrl} />
+        <meta key="og-title" property="og:title" content="DiscoGraph" />
+        <meta key="og-description" property="og:description" content="A Discord Bot that infers conversations between users and draws pretty graphs." />
+        <meta key="og-type" property="og:type" content="website" />
+        <meta key="og-image" property="og:image" content={(new URL('/logo-256.png', baseUrl)).href} />
+        <meta key="og-image-width" property="og:image:width" content="256" />
+        <meta key="og-image-height" property="og:image:height" content="256" />
+        <meta key="og-url" property="og:url" content={baseUrl} />
       </Head>
       <Layout showHeaderLogo={pathname !== '/'} signOutToIndex={!!pathname.match("^/server(/|s?$)")}>
         <Component {...pageProps} />

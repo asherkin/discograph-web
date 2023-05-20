@@ -64,11 +64,11 @@ export async function getTokenAndGuildIdFromRequest<T>(req: NextApiRequest, res:
     };
 }
 
-function avatarToHash(avatar: Buffer, animated: boolean): string {
+export function avatarToHash(avatar: Buffer, animated: boolean): string {
     return `${animated ? "a_" : ""}${avatar.reverse().toString("hex").padStart(32, "0")}`;
 }
 
-function hashToAvatar(hash: string): { avatar: Buffer, animated: boolean } {
+export function hashToAvatar(hash: string): { avatar: Buffer, animated: boolean } {
     let animated = false;
     if (hash.startsWith("a_")) {
         hash = hash.substring(2);
